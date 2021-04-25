@@ -29,7 +29,7 @@
 
 package org.firstinspires.ftc.teamcode;
 
-import android.companion.DeviceFilter;
+//import android.companion.DeviceFilter;
 
 import com.qualcomm.hardware.bosch.BNO055IMU;
 import com.qualcomm.hardware.bosch.JustLoggingAccelerationIntegrator;
@@ -41,6 +41,8 @@ import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
+
+import java.net.HttpURLConnection;
 
 /**
  * This file contains an example of an iterative (Non-Linear) "OpMode".
@@ -85,8 +87,9 @@ public class manual_Iterative_Wy extends OpMode
     double Kp=0.45,Ki=0.0,Kd=0.04;//pid参数
     double targetAngle = 0;
 
-    boolean elevatorFlag = false;
-    boolean triggerFlag = false;
+    boolean elevatorFlag = false;//电梯位置标志
+    boolean triggerFlag = false;//
+    boolean lbFlag = false,rbFlag = false;//左右bumper是否按下标志
 
     /*
      * Code to run ONCE when the driver hits INIT
@@ -94,6 +97,17 @@ public class manual_Iterative_Wy extends OpMode
     @Override
     public void init() {
         telemetry.addData("Status", "Initialized");
+
+        BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
+        parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
+        parameters.accelUnit           = BNO055IMU.AccelUnit.METERS_PERSEC_PERSEC;
+        parameters.calibrationDataFile = "BNO055IMUCalibration.json"; // see the calibration sample opmode
+        parameters.loggingEnabled      = true;
+        parameters.loggingTag          = "IMU";
+        parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
+
+        //连接imu
+        imu = hardwareMap.get(BNO055IMU.class, "imu");
 
         // Initialize the hardware variables. Note that the strings used here as parameters
         // to 'get' must correspond to the names assigned during the robot configuration
@@ -110,12 +124,10 @@ public class manual_Iterative_Wy extends OpMode
         elevatorright = hardwareMap.get(Servo.class, "elevatorright");
         slope         = hardwareMap.get(Servo.class, "slope");
         triggerroller = hardwareMap.get(Servo.class, "triggerroller");
-
         touchsensor0 = hardwareMap.get(DigitalChannel.class, "touchsensor0");
         touchsensor1 = hardwareMap.get(DigitalChannel.class, "touchsensor1");
        // motor = hardwareMap.get(DcMotorEx.class,"rightfront");
         //RightFront = hardwareMap.get(DcMotor.class,"rightfront");
-
 
         // Most robots need the motor on one side to be reversed to drive forward
         // Reverse the motor that runs backwards when connected directly to the battery
@@ -136,18 +148,8 @@ public class manual_Iterative_Wy extends OpMode
         touchsensor0.setMode(DigitalChannel.Mode.INPUT);
         touchsensor1.setMode(DigitalChannel.Mode.INPUT);
 
-        BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
-        parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
-        parameters.accelUnit           = BNO055IMU.AccelUnit.METERS_PERSEC_PERSEC;
-        parameters.calibrationDataFile = "BNO055IMUCalibration.json"; // see the calibration sample opmode
-        parameters.loggingEnabled      = true;
-        parameters.loggingTag          = "IMU";
-        parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
-
-        //连接imu
-        imu = hardwareMap.get(BNO055IMU.class, "imu");
         //等待响应
-        while (imu.isGyroCalibrated());
+        //while (imu.isGyroCalibrated());
         //imu初始化
         imu.initialize(parameters);
 
@@ -177,51 +179,101 @@ public class manual_Iterative_Wy extends OpMode
         float x, y;
         float lt, rt;
         float intakePower;
-        double speedModify;
 
-        boolean triggerPosition;
+        double speedModify;//pid修正速度
 
-        final double INCREMENT   = 0.01;     // amount to slew servo each CYCLE_MS cycle
-        final int    CYCLE_MS    =   50;     // period of each cycle
+        //-------------------电梯参数---------------------------------------------------------------
         final double MAX_POS_left     =  0.65;     // Maximum rotational position
         final double MAX_POS_right     =  0.33;     // Maximum rotational position
         final double MIN_POS_left     =  0.33;     // Minimum rotational position
         final double MIN_POS_right     =  0.6;     // Minimum rotational position
+        //-----------------------------------------------------------------------------------------
+
+        //-------------------------------发射推杆---------------------------------------------------
         final double TRI_RUN = 0.9;
         final double TRI_STOP =0.5;
-        final double angleIncreaseCoefficient = 1;
-//        final int padErr = 80;
+        //-----------------------------------------------------------------------------------------
 
+        //----------------------------目标角跟随参数-------------------------------------------------
+        final double angleIncreaseCoefficient = 1;
+        //-----------------------------------------------------------------------------------------
+
+        /*
+        //----------------------------计算发射坡度部分-----------------------------------------------
+        final double carHeight = 0.3;//车高
+        final double shootHeight = 1.0;//篮筐高度
+        final double g_v2 = 1.0;//重力除以(发射速度的平方)
+        final double angleToPosition = 0.5;//角度转换成舵机位置
+
+        double distance=0;//传感器获取距离
+        double slopeAngle, calculateAssistAngle;
+        //计算斜坡需要的角度
+        calculateAssistAngle = Math.atan((carHeight-shootHeight)/distance);
+        slopeAngle = (distance*distance*g_v2+shootHeight-carHeight)/Math.sqrt(distance*distance+(shootHeight-carHeight)*(shootHeight-carHeight));
+        slopeAngle = Math.asin(slopeAngle)-calculateAssistAngle;
+        slopeAngle = Math.toDegrees(slopeAngle/2);
+        slope.setPosition(slopeAngle*angleToPosition);
+        //--------------------------------发射坡度调整结束-------------------------------------------
+        */
+
+        //------------------------获取部分按键值---------------------------------------------------
         y            = -gamepad1.left_stick_y ;
         x            = gamepad1.right_stick_x ;
         lt           = gamepad1.left_trigger;
         rt           = gamepad1.right_trigger;
         intakePower  =-gamepad2.left_stick_y;
-        triggerPosition = gamepad2.y;
+        //-------------------------获取结束-----------------------------------------------------
 
+        //----设定pid修正的目标角，调整‘angleIncreaseCoefficient’使其与车子旋转角度基本一致--------------
         if (targetAngle < 160)
-            targetAngle += angleIncreaseCoefficient*lt;
+            targetAngle += angleIncreaseCoefficient * lt;
         else
             lt = 0;
         if (targetAngle> -160)
-            targetAngle -= angleIncreaseCoefficient*rt;
+            targetAngle -= angleIncreaseCoefficient * rt;
         else
             rt = 0;
+        //-------------------------------目标角调整结束----------------------------------------------
 
+        //---------------------------按lb和rb进行角度微调，按一下调15度。------------------------------
+        if (gamepad1.left_bumper) {
+            if(lbFlag == false){
+                lbFlag = true;
+                targetAngle += 15;
+            }
+        }
+        else
+            lbFlag = false;
+        if (gamepad1.right_bumper){
+            if(rbFlag == false){
+                rbFlag = true;
+                targetAngle -= 15;
+            }
+        }
+        else
+            rbFlag = false;
+        //-------------------------------------微调结束--------------------------------------------
+
+        //-----------------------------------pid获取修正速度--------------------------------------
         speedModify=gyroModifyPID(targetAngle);
+        //-------------------------------------修正结束-------------------------------------------
 
-        if (gamepad1.x == true)
+        //-----------------调整至绝对角度：0°（按x）和15°（按b），便于发射------------------------------
+        if (gamepad1.x)
             targetAngle = 15;
-        if (gamepad1.b == true)
+        if (gamepad1.b)
             targetAngle = 0;
+        //-----------------------------------------结束---------------------------------------------
 
-        //设定轮子速度
+        //---------------------------------设定轮子速度----------------------------------------------
         LeftFront.setPower( ((y+x)+(rt-lt)) - speedModify );
         LeftRear.setPower( ((y-x)+(rt-lt)) - speedModify);
         RightFront.setPower( ((y-x)+(lt-rt)) + speedModify);
         RightRear.setPower( ((y+x)+(lt-rt)) + speedModify);
         intake.setPower(intakePower);
+        //---------------------------------速度设定结束----------------------------------------------
 
+        //--------------------------------发射相关操作-----------------------------------------------
         if (elevatorFlag == false) {
             if (triggerFlag == false) {
                 while (touchsensor0.getState() == false)
@@ -256,55 +308,7 @@ public class manual_Iterative_Wy extends OpMode
                     triggerFlag = true;
                     }
             }
-
-        //triggerroller.setPosition(0.5);
-        /*if (gamepad1.left_stick_y >= 0.3) {
-            DCPower +=1;
-        } else if (gamepad1.left_stick_y <= -0.3) {
-            DCPower += -1;
-        } else {
-            DCPower += 0;
-        }
-        if (gamepad1.right_stick_x >= 0.3) {
-            DCPower += 1;
-        } else if (gamepad1.right_stick_x < -0.3) {
-            DCPower += -1;
-        } else {
-            DCPower += 0;
-        }*/
-        /*if (gamepad1.y) {
-            intaketrigger.setPosition(0.2);
-        } else if (gamepad1.a) {
-            intaketrigger.setPosition(0.5);
-        }
-        if (gamepad1.left_bumper) {
-            shooter.setPower(1);
-        } else if (gamepad1.right_bumper) {
-            shooter.setPower(0.1);
-        }
-        if (gamepad2.x) {
-            trigger.setPosition(MIN_POS);
-        } else if (gamepad2.b) {
-            trigger.setPosition(MAX_POS);
-        }
-        if (gamepad2.a) {
-            elevatorleft.setPosition(MIN_POS);
-            elevatorright.setPosition(MAX_POS);
-        } else if (gamepad2.y) {
-            elevatorleft.setPosition(MAX_POS);
-            elevatorright.setPosition(MIN_POS);
-        }
-        if (gamepad2.left_bumper) {
-            slope.setPosition(MIN_POS);
-        } else if (gamepad2.right_bumper) {
-            slope.setPosition(0.5);
-        }
-        if (gamepad1.x) {
-            triggerroller.setPosition(0.9);
-        } else if(gamepad1.b){
-            triggerroller.setPosition(0.5);
-        }*/
-
+        //-----------------------------------发射结束-----------------------------------------------
 
         // Show the elapsed game time and wheel power.
         telemetry.addData("Status", "Run Time: " + runtime.toString());
@@ -314,7 +318,15 @@ public class manual_Iterative_Wy extends OpMode
         telemetry.update();
     }
 
-    //根据目标角，返回速度修正
+    /**
+     * **************************gyroModifyPID***********************************
+     * 根据目标角，返回速度修正
+     * 将右边电机速度加上修正值，左边减去修正值
+     *
+     * 修正后的效果为：车头指向角度targetAngle
+     * 调整targetAngle可以实现转向
+     * ***************************************************************************
+    * */
     public double gyroModifyPID(double targetAngle) {
         Orientation angle;
         angle =imu.getAngularOrientation();
@@ -322,7 +334,6 @@ public class manual_Iterative_Wy extends OpMode
         differentiationAngle=propotionAngle-lastAngleErr;//微分
         integralAngle=integralAngle+propotionAngle;//积分
         lastAngleErr=propotionAngle;
-
         return (Kp*propotionAngle+Ki*integralAngle+Kd*differentiationAngle)/15;
     }
 
