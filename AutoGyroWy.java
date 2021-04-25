@@ -29,6 +29,8 @@
 
 package org.firstinspires.ftc.teamcode;
 
+import android.graphics.RectF;
+
 import com.qualcomm.hardware.bosch.BNO055IMU;
 import com.qualcomm.hardware.bosch.JustLoggingAccelerationIntegrator;
 import com.qualcomm.hardware.modernrobotics.ModernRoboticsI2cGyro;
@@ -85,15 +87,13 @@ public class AutoGyroWy extends LinearOpMode {
     // The IMU sensor object
     BNO055IMU imu;
 
-    // State used for updating telemetry
-    Orientation angles;
-    Acceleration gravity;
-
     static final double     COUNTS_PER_MOTOR_REV    = 1440 ;    // eg: TETRIX Motor Encoder
     static final double     DRIVE_GEAR_REDUCTION    = 2.0 ;     // This is < 1.0 if geared UP
     static final double     WHEEL_DIAMETER_INCHES   = 4.0 ;     // For figuring circumference
     static final double     COUNTS_PER_INCH         = (COUNTS_PER_MOTOR_REV * DRIVE_GEAR_REDUCTION) /
                                                       (WHEEL_DIAMETER_INCHES * 3.1415);
+
+    final int readingPerRound = 4096;
 
     // These constants define the desired driving/control characteristics
     // The can/should be tweaked to suite the specific robot drive train.
@@ -109,18 +109,16 @@ public class AutoGyroWy extends LinearOpMode {
     private DcMotor RightFront = null;
     private DcMotor RightRear = null;
 
-    double propotionAngle=0,integralAngle=0,differentiationAngle=0;
+    double propotionAngle=0, integralAngle=0, differentiationAngle=0;
+    double propotionEncoder=0, integralEncoder=0, differentiationEncoder=0;
     double lastAngleErr;
+    double lastEncoderErr;
     double Kp=0.45,Ki=0.01,Kd=0.04;
+    double Kp_encoder=0.45, Ki_encoder=0.01, Kd_encoder=0.04;
+    double currentAngle = 0;
 
     @Override
     public void runOpMode() {
-
-        double lrSpeed,lfSpeed,rfSpeed,rrSpeed;
-        double speedModify;
-        int count = 65538;
-        lrSpeed=lfSpeed=rfSpeed=rrSpeed=0;
-
         /*
          * Initialize the standard drive system variables.
          * The init() method of the hardware class does most of the work here
@@ -136,7 +134,6 @@ public class AutoGyroWy extends LinearOpMode {
         LeftFront.setDirection(DcMotor.Direction.FORWARD);
         LeftRear.setDirection(DcMotor.Direction.FORWARD);
         RightFront.setDirection(DcMotor.Direction.REVERSE);
-        RightRear.setDirection(DcMotor.Direction.REVERSE);
         RightRear.setDirection(DcMotor.Direction.REVERSE);
 
         LeftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -178,80 +175,111 @@ public class AutoGyroWy extends LinearOpMode {
         RightFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         RightRear.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
 
+        RightFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        LeftFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         // Wait for the game to start (Display Gyro value), and reset gyro before we move..
         while (!isStarted()) {
             //telemetry.addData(">", "Robot Heading = %d", imu.getAngularOrientation().thirdAngle);
             telemetry.update();
         }
 
-        while (count>1){
-            count=count-1;
-            sleep(50);
-            speedModify=gyroMofifyPIF(0);
-            RightRear.setPower(rrSpeed+speedModify);
-            RightFront.setPower(rfSpeed+speedModify);
-            LeftRear.setPower(lrSpeed-speedModify);
-            LeftFront.setPower(lfSpeed-speedModify);
-//            rightRun(rfSpeed-speedModify,RightFront);
-//            rightRun(rrSpeed-speedModify,RightRear);
-//            leftRun(lfSpeed+speedModify,LeftFront);
-//            leftRun(lrSpeed+speedModify,LeftRear);
-            //telemetry.addData("%f",speedModify);
-        }
+        encoderReset(RightFront);
+        encoderReset(LeftFront);
+        encoderReset(RightRear);
 
-/*
-        // Step through each leg of the path,
-        // Note: Reverse movement is obtained by setting a negative distance (not speed)
-        // Put a hold after each turn
-        gyroDrive(DRIVE_SPEED, 48.0, 0.0);    // Drive FWD 48 inches
-        gyroTurn( TURN_SPEED, -45.0);         // Turn  CCW to -45 Degrees
-        gyroHold( TURN_SPEED, -45.0, 0.5);    // Hold -45 Deg heading for a 1/2 second
-        gyroDrive(DRIVE_SPEED, 12.0, -45.0);  // Drive FWD 12 inches at 45 degrees
-        gyroTurn( TURN_SPEED,  45.0);         // Turn  CW  to  45 Degrees
-        gyroHold( TURN_SPEED,  45.0, 0.5);    // Hold  45 Deg heading for a 1/2 second
-        gyroTurn( TURN_SPEED,   0.0);         // Turn  CW  to   0 Degrees
-        gyroHold( TURN_SPEED,   0.0, 1.0);    // Hold  0 Deg heading for a 1 second
-        gyroDrive(DRIVE_SPEED,-48.0, 0.0);    // Drive REV 48 inches
-*/
+        //moveForward(10*readingPerRound);
+        turnAngle(10);
+        //moveTrans(5*readingPerRound);
+        //moveForward(5*readingPerRound);
+//        while (RightRear.getCurrentPosition() < 5*readingPerRound)
+//        {
+//            forwardPower(0,gyroModifyPID(currentAngle));
+//        }
+
+
         telemetry.addData("Path", "Complete");
         telemetry.update();
     }
 
-    public double gyroMofifyPIF(double targetAngle) {
+    public double gyroModifyPID(double targetAngle) {
         Orientation angle;
         angle=imu.getAngularOrientation();
-        //propotionAngle=angle.thirdAngle-targetAngle;
-        //propotionAngle=targetAngle-angle.thirdAngle;
+
         propotionAngle=targetAngle-angle.firstAngle;
-        //propotionAngle=targetAngle-angle.secondAngle;
         differentiationAngle=propotionAngle-lastAngleErr;
-        integralAngle=integralAngle+propotionAngle;
-        lastAngleErr=propotionAngle;
+        integralAngle += propotionAngle;
+        lastAngleErr = propotionAngle;
 
         return (Kp*propotionAngle+Ki*integralAngle+Kd*differentiationAngle)/15;
     }
 
-    /*
-    public void leftRun(double speed,DcMotor name){
-        if (speed>0){
-            name.setDirection(DcMotorSimple.Direction.FORWARD);
-            name.setPower(speed);
+    public double encoderModifyPID(int left, int right){
+        double modify;
+        propotionEncoder=(left-right)/(left+right);
+        differentiationEncoder = propotionEncoder - lastEncoderErr;
+        integralEncoder += propotionEncoder;
+        lastEncoderErr = propotionEncoder;
+        modify = Kp_encoder*propotionEncoder + Ki_encoder*integralEncoder + Kd_encoder*differentiationEncoder;
+        return modify;
+    }
+
+    public void moveForward(int targetPosition){
+        int leftEncoder = 0, rightEncoder = 0;
+        double speedModify = 0;
+        final double speed = 0.2;
+        forwardPower(speed,speedModify);
+        while ( ((leftEncoder+rightEncoder)/2) < targetPosition)
+        {
+            leftEncoder = -LeftFront.getCurrentPosition()-1;
+            rightEncoder = -RightFront.getCurrentPosition()-1;
+            //speedModify = encoderModifyPID(leftEncoder, rightEncoder);//编码器pid
+            speedModify =0;// gyroModifyPID(targetAngle);//陀螺仪pid
+            forwardPower(speed,speedModify);
         }
-        else {
-            name.setDirection(DcMotorSimple.Direction.REVERSE);
-            name.setPower(-speed);
+        forwardPower(0,0);
+        encoderReset(RightFront);
+        encoderReset(LeftFront);
+    }
+
+    public void moveTrans(int targetPosition){
+        int midEncoder = 0;
+        double speedModify = 0;
+        final double speed = 0.8;
+        transPower(speed,speedModify);
+        while (midEncoder < targetPosition){
+            midEncoder = RightRear.getCurrentPosition();
+            speedModify = gyroModifyPID(currentAngle);
+            transPower(speed,speedModify);
+        }
+        transPower(0,0);
+    }
+
+    public void turnAngle(double angle){
+        double speedModify;
+        currentAngle = angle;
+        speedModify = gyroModifyPID(angle);
+        //while ( (speedModify > 0.1) || (speedModify < -0.1) ){
+        while (imu.getAngularOrientation().firstAngle != angle){
+            forwardPower(0,speedModify);
         }
     }
 
-    public void rightRun(double speed,DcMotor name){
-        if (speed<0){
-            name.setDirection(DcMotorSimple.Direction.FORWARD);
-            name.setPower(-speed);
-        }
-        else {
-            name.setDirection(DcMotorSimple.Direction.REVERSE);
-            name.setPower(speed);
-        }
+    public void forwardPower(double speed, double modify){
+        RightFront.setPower(speed + modify);
+        RightRear.setPower(speed + modify);
+        LeftFront.setPower(speed - modify);
+        LeftRear.setPower(speed - modify);
     }
-    */
+
+    public void transPower(double speed, double modify){
+        RightFront.setPower(-speed + modify);
+        RightRear.setPower(speed + modify);
+        LeftFront.setPower(speed - modify);
+        LeftRear.setPower(-speed - modify);
+    }
+
+    public void encoderReset(DcMotor mo){
+        mo.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        mo.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+    }
 }

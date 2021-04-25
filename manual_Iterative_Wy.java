@@ -29,15 +29,17 @@
 
 package org.firstinspires.ftc.teamcode;
 
+import android.companion.DeviceFilter;
+
 import com.qualcomm.hardware.bosch.BNO055IMU;
 import com.qualcomm.hardware.bosch.JustLoggingAccelerationIntegrator;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DigitalChannel;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
-import org.firstinspires.ftc.robotcore.external.navigation.Acceleration;
 import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
 
 /**
@@ -54,40 +56,37 @@ import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
  * Remove or comment out the @Disabled line to add this opmode to the Driver Station OpMode list
  */
 
-@TeleOp(name="A", group="Iterative Opmode")
+@TeleOp(name="O_0", group="Iterative Opmode")
 //@Disabled
 
-public class BasicOpMode_Iterative_WyEdit extends OpMode
+public class manual_Iterative_Wy extends OpMode
 {
-
+    //声明们
     BNO055IMU imu;
-
-    // State used for updating telemetry
-    Orientation angles;
-    Acceleration gravity;
-
-    // Declare OpMode members.
     final ElapsedTime runtime = new ElapsedTime();
     private DcMotor LeftFront = null;
     private DcMotor LeftRear = null;
     private DcMotor RightFront = null;
     private DcMotor RightRear = null;
-    //private DcMotor intake = null;
-    //private DcMotor shooter = null;
-    //private Servo intaketrigger;
-    //Servo trigger;
-    //Servo elevatorleft;
-    //Servo elevatorright;
-    //Servo slope;
-    //Servo triggerroller;
-    //DcMotor leftencoder;
-   // DcMotorEx motor;
+    private DcMotor intake = null;
+    private DcMotor shooter = null;
+    private Servo intaketrigger;
+    private DigitalChannel touchsensor0;
+    private DigitalChannel touchsensor1;
 
-    //pid变量
-    double propotionAngle=0,integralAngle=0,differentiationAngle=0;
+    Servo trigger;
+    Servo elevatorleft;
+    Servo elevatorright;
+    Servo slope;
+    Servo triggerroller;
+
+    double propotionAngle=0,integralAngle=0,differentiationAngle=0;//pid变量
     double lastAngleErr;
-    //pid参数
-    double Kp=0.45,Ki=0.01,Kd=0.04;
+    double Kp=0.45,Ki=0.0,Kd=0.04;//pid参数
+    double targetAngle = 0;
+
+    boolean elevatorFlag = false;
+    boolean triggerFlag = false;
 
     /*
      * Code to run ONCE when the driver hits INIT
@@ -103,14 +102,20 @@ public class BasicOpMode_Iterative_WyEdit extends OpMode
         LeftRear      = hardwareMap.get(DcMotor.class, "leftrear");
         RightFront    = hardwareMap.get(DcMotor.class, "rightfront");
         RightRear     = hardwareMap.get(DcMotor.class, "rightrear");
-//        intake        = hardwareMap.get(DcMotor.class, "intake");
-//        shooter       = hardwareMap.get(DcMotor.class, "shooter");
-//        intaketrigger = hardwareMap.get(Servo.class, "intaketrigger");
-//        trigger       = hardwareMap.get(Servo.class, "trigger");
-//        elevatorleft  = hardwareMap.get(Servo.class, "elevatorleft");
-//        elevatorright = hardwareMap.get(Servo.class, "elevatorright");
-//        slope         = hardwareMap.get(Servo.class, "slope");
-//        triggerroller = hardwareMap.get(Servo.class, "triggerroller");
+        intake        = hardwareMap.get(DcMotor.class, "intake");
+        shooter       = hardwareMap.get(DcMotor.class, "shooter");
+        intaketrigger = hardwareMap.get(Servo.class, "intaketrigger");
+        trigger       = hardwareMap.get(Servo.class, "trigger");
+        elevatorleft  = hardwareMap.get(Servo.class, "elevatorleft");
+        elevatorright = hardwareMap.get(Servo.class, "elevatorright");
+        slope         = hardwareMap.get(Servo.class, "slope");
+        triggerroller = hardwareMap.get(Servo.class, "triggerroller");
+
+        touchsensor0 = hardwareMap.get(DigitalChannel.class, "touchsensor0");
+        touchsensor1 = hardwareMap.get(DigitalChannel.class, "touchsensor1");
+       // motor = hardwareMap.get(DcMotorEx.class,"rightfront");
+        //RightFront = hardwareMap.get(DcMotor.class,"rightfront");
+
 
         // Most robots need the motor on one side to be reversed to drive forward
         // Reverse the motor that runs backwards when connected directly to the battery
@@ -119,18 +124,17 @@ public class BasicOpMode_Iterative_WyEdit extends OpMode
         RightFront.setDirection(DcMotor.Direction.REVERSE);
         RightRear.setDirection(DcMotor.Direction.REVERSE);
         RightRear.setDirection(DcMotor.Direction.REVERSE);
-//        intake.setDirection(DcMotor.Direction.REVERSE);
-//        shooter.setDirection(DcMotor.Direction.FORWARD);
-//        triggerroller.setDirection(Servo.Direction.FORWARD); // set triggerroller direction
+        intake.setDirection(DcMotor.Direction.REVERSE);
+        shooter.setDirection(DcMotor.Direction.FORWARD);
+        triggerroller.setDirection(Servo.Direction.FORWARD); // set triggerroller direction
         LeftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         LeftRear.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         RightFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         RightRear.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-//        intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
-        // Send telemetry message to alert driver that we are calibrating;
-        telemetry.addData(">", "Calibrating Gyro");    //
-        telemetry.update();
+        touchsensor0.setMode(DigitalChannel.Mode.INPUT);
+        touchsensor1.setMode(DigitalChannel.Mode.INPUT);
 
         BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
         parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
@@ -140,20 +144,12 @@ public class BasicOpMode_Iterative_WyEdit extends OpMode
         parameters.loggingTag          = "IMU";
         parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
 
-        // Retrieve and initialize the IMU. We expect the IMU to be attached to an I2C port
-        // on a Core Device Interface Module, configured to be a sensor of type "AdaFruit IMU",
-        // and named "imu".
+        //连接imu
         imu = hardwareMap.get(BNO055IMU.class, "imu");
-
+        //等待响应
+        while (imu.isGyroCalibrated());
+        //imu初始化
         imu.initialize(parameters);
-
-        telemetry.addData(">", "Robot Ready.");    //
-        telemetry.update();
-
-        LeftFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        LeftRear.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        RightFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        RightRear.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
 
         // Tell the driver that initialization is complete.
         telemetry.addData("Status", "Initialized");
@@ -166,9 +162,7 @@ public class BasicOpMode_Iterative_WyEdit extends OpMode
     public void init_loop() {
     }
 
-    /*
-     * Code to run ONCE when the driver hits PLAY
-     */
+    //按下开始
     @Override
     public void start() {
         runtime.reset();
@@ -179,50 +173,90 @@ public class BasicOpMode_Iterative_WyEdit extends OpMode
      */
     @Override
     public void loop() {
-        // Setup a variable for each drive wheel to save power level for telemetry
-        float x;
-        float y;
-        float lt;
-        float rt;
+
+        float x, y;
+        float lt, rt;
         float intakePower;
-
         double speedModify;
-        double targetAngle = 0;
 
-        //double DCPower = 1;
         boolean triggerPosition;
+
         final double INCREMENT   = 0.01;     // amount to slew servo each CYCLE_MS cycle
         final int    CYCLE_MS    =   50;     // period of each cycle
-        final double MAX_POS     =  1.0;     // Maximum rotational position
-        final double MIN_POS     =  0.0;     // Minimum rotational position
+        final double MAX_POS_left     =  0.65;     // Maximum rotational position
+        final double MAX_POS_right     =  0.33;     // Maximum rotational position
+        final double MIN_POS_left     =  0.33;     // Minimum rotational position
+        final double MIN_POS_right     =  0.6;     // Minimum rotational position
+        final double TRI_RUN = 0.9;
+        final double TRI_STOP =0.5;
+        final double angleIncreaseCoefficient = 1;
+//        final int padErr = 80;
 
-
-
-        // Choose to drive using either Tank Mode, or POV Mode
-        // Comment out the method that's not used.  The default below is POV.
-
-        // POV Mode uses left stick to go forward, and right stick to turn.
-        // - This uses basic math to combine motions and is easier to drive straight.
-        //double drive = -gamepad1.left_stick_y;
-        // double turn  =  gamepad1.right_stick_x;
-        //leftPower    = Range.clip(drive + turn, -1.0, 1.0) ;
-        //rightPower   = Range.clip(drive - turn, -1.0, 1.0) ;
-
-        // Tank Mode uses one stick to control each wheel.
-        // - This requires no math, but it is hard to drive forward slowly and keep straight.
         y            = -gamepad1.left_stick_y ;
         x            = gamepad1.right_stick_x ;
         lt           = gamepad1.left_trigger;
         rt           = gamepad1.right_trigger;
         intakePower  =-gamepad2.left_stick_y;
+        triggerPosition = gamepad2.y;
 
-        //获取修正速度
-        speedModify=gyroMofifyPIF(targetAngle);
-        LeftFront.setPower(((y+x)+(rt-lt)) + speedModify);
-        LeftRear.setPower(((y-x)+(rt-lt)) + speedModify);
-        RightFront.setPower(((y-x)+(lt-rt)) + speedModify);
-        RightRear.setPower(((y+x)+(lt-rt)) + speedModify);
-//        intake.setPower(intakePower);
+        if (targetAngle < 160)
+            targetAngle += angleIncreaseCoefficient*lt;
+        else
+            lt = 0;
+        if (targetAngle> -160)
+            targetAngle -= angleIncreaseCoefficient*rt;
+        else
+            rt = 0;
+
+        speedModify=gyroModifyPID(targetAngle);
+
+        if (gamepad1.x == true)
+            targetAngle = 15;
+        if (gamepad1.b == true)
+            targetAngle = 0;
+
+        //设定轮子速度
+        LeftFront.setPower( ((y+x)+(rt-lt)) - speedModify );
+        LeftRear.setPower( ((y-x)+(rt-lt)) - speedModify);
+        RightFront.setPower( ((y-x)+(lt-rt)) + speedModify);
+        RightRear.setPower( ((y+x)+(lt-rt)) + speedModify);
+        intake.setPower(intakePower);
+
+        if (elevatorFlag == false) {
+            if (triggerFlag == false) {
+                while (touchsensor0.getState() == false)
+                    trigger.setPosition(TRI_RUN);
+                trigger.setPosition(TRI_STOP);
+                triggerFlag = true;
+            }
+            if (gamepad1.y == true) {
+                elevatorleft.setPosition(MAX_POS_left);
+                elevatorright.setPosition(MAX_POS_right);
+                elevatorFlag = true;
+                shooter.setPower(1);
+                triggerroller.setPosition(0.9);
+            }
+        }
+        else {
+                if (gamepad1.a == true) {
+                    elevatorleft.setPosition(MIN_POS_left);
+                    elevatorright.setPosition(MIN_POS_right);
+                    shooter.setPower(0);
+                    triggerroller.setPosition(0.5);
+                    elevatorFlag = false;
+                }
+                while (gamepad1.right_bumper == true) {
+                    trigger.setPosition(TRI_RUN);
+                    triggerFlag = false;
+                }
+                if (triggerFlag == false){
+                    while (touchsensor0.getState() == false)
+                        trigger.setPosition(TRI_RUN);
+                    trigger.setPosition(TRI_STOP);
+                    triggerFlag = true;
+                    }
+            }
+
         //triggerroller.setPosition(0.5);
         /*if (gamepad1.left_stick_y >= 0.3) {
             DCPower +=1;
@@ -272,39 +306,27 @@ public class BasicOpMode_Iterative_WyEdit extends OpMode
         }*/
 
 
-
         // Show the elapsed game time and wheel power.
         telemetry.addData("Status", "Run Time: " + runtime.toString());
         telemetry.addData("Motors", "left (%.2f), right (%.2f)", y, x);
         telemetry.addData("Motors", "left (%.2f), right (%.2f)", lt, rt);
 
-        //telemetry.addData("encoder value:",motor.getCurrentPosition());
-        //telemetry.addData("IntakePower", "left (%.2f), right (%.2f)", intakePower, shooterPower);
-        //telemetry.addData("ShooterPower", "left (%.2f)", shooterPower);
-
         telemetry.update();
-
     }
 
-    public double gyroMofifyPIF(double targetAngle) {
+    //根据目标角，返回速度修正
+    public double gyroModifyPID(double targetAngle) {
         Orientation angle;
-        angle=imu.getAngularOrientation();
-        //计算比例误差
-        propotionAngle=targetAngle-angle.firstAngle;
-        //微分误差
-        differentiationAngle=propotionAngle-lastAngleErr;
-        //积分误差
-        integralAngle=integralAngle+propotionAngle;
-
+        angle =imu.getAngularOrientation();
+        propotionAngle=targetAngle-angle.firstAngle;//计算角度误差，作为比例误差
+        differentiationAngle=propotionAngle-lastAngleErr;//微分
+        integralAngle=integralAngle+propotionAngle;//积分
         lastAngleErr=propotionAngle;
-        //输出修正速度
+
         return (Kp*propotionAngle+Ki*integralAngle+Kd*differentiationAngle)/15;
     }
 
-
-    /*
-     * Code to run ONCE after the driver hits STOP
-     */
+    //按下停止
     @Override
     public void stop() {
     }
