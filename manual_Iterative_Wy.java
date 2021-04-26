@@ -238,7 +238,7 @@ public class manual_Iterative_Wy extends OpMode
         intake.setPower(intakePower);
         //---------------------------------速度设定结束----------------------------------------------
 
-//************************************发射相关操作***************************************************
+//************************************发射相关操作********************************************************************
         //------------------------------电梯参数-----------------------------------------------------
         final double MAX_POS_left     =  0.65;
         final double MAX_POS_right     =  0.33;
@@ -249,41 +249,36 @@ public class manual_Iterative_Wy extends OpMode
         final double TRI_STOP =0.5;
         //------------------------------------------------------------------------------------------
 
-        if (elevatorFlag == false) {
-            if (triggerFlag == false) {
-                while (touchsensor0.getState() == false)
-                    trigger.setPosition(TRI_RUN);
-                trigger.setPosition(TRI_STOP);
-                triggerFlag = true;
-            }
-            if (gamepad1.y == true) {
-                elevatorleft.setPosition(MAX_POS_left);
-                elevatorright.setPosition(MAX_POS_right);
-                elevatorFlag = true;
-                shooter.setPower(1);
-                triggerroller.setPosition(0.9);
-            }
+        //------------------------------------trigger复位-------------------------------------------
+        if (triggerFlag == false) {
+            while (touchsensor0.getState() == false)
+                trigger.setPosition(TRI_RUN);
+            trigger.setPosition(TRI_STOP);
+            triggerFlag = true;
+        }
+        //-----------------------------------复位结束------------------------------------------------
+
+        if (elevatorFlag == false && gamepad1.y) {//电梯在下面时按下Y，则升起电梯
+            elevatorleft.setPosition(MAX_POS_left);
+            elevatorright.setPosition(MAX_POS_right);
+            elevatorFlag = true;
+            shooter.setPower(1);
+            triggerroller.setPosition(0.9);
         }
         else {
-                if (gamepad1.a == true) {
-                    elevatorleft.setPosition(MIN_POS_left);
-                    elevatorright.setPosition(MIN_POS_right);
-                    shooter.setPower(0);
-                    triggerroller.setPosition(0.5);
-                    elevatorFlag = false;
-                }
-                while (gamepad1.right_bumper == true) {
-                    trigger.setPosition(TRI_RUN);
-                    triggerFlag = false;
-                }
-                if (triggerFlag == false){
-                    while (touchsensor0.getState() == false)
-                        trigger.setPosition(TRI_RUN);
-                    trigger.setPosition(TRI_STOP);
-                    triggerFlag = true;
-                    }
+            while (gamepad1.y && gamepad1.right_bumper) {//电梯在上面时按Y+RB，发射
+                trigger.setPosition(TRI_RUN);
+                triggerFlag = false;
             }
-//***************************************发射结束***************************************************
+            if (gamepad1.a) {//电梯在上面时按A，下降
+                elevatorleft.setPosition(MIN_POS_left);
+                elevatorright.setPosition(MIN_POS_right);
+                shooter.setPower(0);
+                triggerroller.setPosition(0.5);
+                elevatorFlag = false;
+            }
+        }
+//***************************************发射结束*********************************************************************
 
         // Show the elapsed game time and wheel power.
         telemetry.addData("Status", "Run Time: " + runtime.toString());

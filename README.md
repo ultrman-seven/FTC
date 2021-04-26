@@ -6,7 +6,7 @@ FTC
     1. AutoGyroWy.java
         wy版自动
 2. 手动部分
-    1. BasicOpMode_Iterative。java
+    1. BasicOpMode_Iterative.java
         附中仙林原来程序
 
     2. manual_Iterative_Wy.java
