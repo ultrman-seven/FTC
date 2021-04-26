@@ -29,7 +29,7 @@
 
 package org.firstinspires.ftc.teamcode;
 
-import android.graphics.RectF;
+//import android.graphics.RectF;
 
 import com.qualcomm.hardware.bosch.BNO055IMU;
 import com.qualcomm.hardware.bosch.JustLoggingAccelerationIntegrator;
@@ -124,6 +124,19 @@ public class AutoGyroWy extends LinearOpMode {
          * The init() method of the hardware class does most of the work here
          */
 
+        BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
+        parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
+        parameters.accelUnit           = BNO055IMU.AccelUnit.METERS_PERSEC_PERSEC;
+        parameters.calibrationDataFile = "BNO055IMUCalibration.json"; // see the calibration sample opmode
+        parameters.loggingEnabled      = true;
+        parameters.loggingTag          = "IMU";
+        parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
+
+        // Retrieve and initialize the IMU. We expect the IMU to be attached to an I2C port
+        // on a Core Device Interface Module, configured to be a sensor of type "AdaFruit IMU",
+        // and named "imu".
+        imu = hardwareMap.get(BNO055IMU.class, "imu");
+
         //
         LeftFront     = hardwareMap.get(DcMotor.class, "leftfront");
         LeftRear      = hardwareMap.get(DcMotor.class, "leftrear");
@@ -145,22 +158,9 @@ public class AutoGyroWy extends LinearOpMode {
         telemetry.addData(">", "Calibrating Gyro");    //
         telemetry.update();
 
-        BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
-        parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
-        parameters.accelUnit           = BNO055IMU.AccelUnit.METERS_PERSEC_PERSEC;
-        parameters.calibrationDataFile = "BNO055IMUCalibration.json"; // see the calibration sample opmode
-        parameters.loggingEnabled      = true;
-        parameters.loggingTag          = "IMU";
-        parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
-
-        // Retrieve and initialize the IMU. We expect the IMU to be attached to an I2C port
-        // on a Core Device Interface Module, configured to be a sensor of type "AdaFruit IMU",
-        // and named "imu".
-        imu = hardwareMap.get(BNO055IMU.class, "imu");
-
 
         // make sure the gyro is calibrated before continuing
-        while (!isStopRequested() && imu.isGyroCalibrated())  {
+        while (!isStopRequested())  {
             sleep(50);
             idle();
         }
@@ -170,37 +170,33 @@ public class AutoGyroWy extends LinearOpMode {
         telemetry.addData(">", "Robot Ready.");    //
         telemetry.update();
 
-        LeftFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        LeftRear.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        RightFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        RightRear.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-
-        RightFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        LeftFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        // Wait for the game to start (Display Gyro value), and reset gyro before we move..
-        while (!isStarted()) {
-            //telemetry.addData(">", "Robot Heading = %d", imu.getAngularOrientation().thirdAngle);
-            telemetry.update();
-        }
-
         encoderReset(RightFront);
         encoderReset(LeftFront);
         encoderReset(RightRear);
+        encoderReset(LeftRear);
 
-        //moveForward(10*readingPerRound);
+        // Wait for the game to start (Display Gyro value), and reset gyro before we move..
+        while (!isStarted()) {
+            telemetry.update();
+        }
+
+        moveForward(10*readingPerRound);
         turnAngle(10);
-        //moveTrans(5*readingPerRound);
-        //moveForward(5*readingPerRound);
-//        while (RightRear.getCurrentPosition() < 5*readingPerRound)
-//        {
-//            forwardPower(0,gyroModifyPID(currentAngle));
-//        }
-
+        moveTrans(5*readingPerRound);
+        moveForward(5*readingPerRound);
 
         telemetry.addData("Path", "Complete");
         telemetry.update();
     }
 
+    /**
+     * **************************gyroModifyPID***********************************
+     * 功能描述：根据目标角，返回速度修正。
+     *          修正后的效果为：车头指向角度targetAngle。
+     * 使用方法：1. 将右边电机速度加上修正值，左边减去修正值。
+     *          2. 调整targetAngle可以实现转向。
+     * ***************************************************************************
+     * */
     public double gyroModifyPID(double targetAngle) {
         Orientation angle;
         angle=imu.getAngularOrientation();
@@ -252,6 +248,7 @@ public class AutoGyroWy extends LinearOpMode {
             transPower(speed,speedModify);
         }
         transPower(0,0);
+        encoderReset(RightRear);
     }
 
     public void turnAngle(double angle){
