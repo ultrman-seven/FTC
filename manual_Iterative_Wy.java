@@ -67,7 +67,6 @@ import java.net.HttpURLConnection;
 public class manual_Iterative_Wy extends OpMode
 {
     //-------------------------------电机和传感器声明们--------------------------------------------
-
     final ElapsedTime runtime = new ElapsedTime();
     private DcMotor LeftFront = null;
     private DcMotor LeftRear = null;
@@ -142,6 +141,15 @@ public class manual_Iterative_Wy extends OpMode
         intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         touchsensor0.setMode(DigitalChannel.Mode.INPUT);
         touchsensor1.setMode(DigitalChannel.Mode.INPUT);
+        //----------------------------编码器初始化---------------------------------------------------
+        RightFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        RightFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        LeftFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        LeftFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        RightRear.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        RightRear.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        LeftRear.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        //------------------------------------------------------------------------------------------
 
         //等待响应
         //while (imu.isGyroCalibrated());
@@ -171,13 +179,11 @@ public class manual_Iterative_Wy extends OpMode
     @Override
 
     public void loop() {
-
-
         //----------------------------目标角跟随参数--------------------------------------------------
         final double angleIncreaseCoefficient = 1;
         //------------------------------------------------------------------------------------------
 
-        //------------------------获取部分按键值---------------------------------------------------
+        //---------------------------获取部分按键值---------------------------------------------------
         float x, y;
         float lt, rt;
         float intakePower;
@@ -186,7 +192,7 @@ public class manual_Iterative_Wy extends OpMode
         lt           = gamepad1.left_trigger;
         rt           = gamepad1.right_trigger;
         intakePower  =-gamepad2.left_stick_y;
-        //-------------------------获取结束-----------------------------------------------------
+        //------------------------------获取结束-----------------------------------------------------
 
         //----设定pid修正的目标角，调整‘angleIncreaseCoefficient’使其与车子旋转角度基本一致--------------
         if (targetAngle < 160)
@@ -199,11 +205,11 @@ public class manual_Iterative_Wy extends OpMode
             rt = 0;
         //-------------------------------目标角调整结束----------------------------------------------
 
-        //---------------------------按lb和rb进行角度微调，按一下调15度。------------------------------
+        //---------------------------按lb和rb进行角度微调，按一下调5度。------------------------------
         if (gamepad1.left_bumper) {
             if(lbFlag == false){
                 lbFlag = true;
-                targetAngle += 15;
+                targetAngle += 5;
             }
         }
         else
@@ -211,7 +217,7 @@ public class manual_Iterative_Wy extends OpMode
         if (gamepad1.right_bumper){
             if(rbFlag == false){
                 rbFlag = true;
-                targetAngle -= 15;
+                targetAngle -= 5;
             }
         }
         else
@@ -306,7 +312,7 @@ public class manual_Iterative_Wy extends OpMode
         differentiationAngle=propotionAngle-lastAngleErr;//微分
         integralAngle=integralAngle+propotionAngle;//积分
         lastAngleErr=propotionAngle;
-        return (Kp*propotionAngle+Ki*integralAngle+Kd*differentiationAngle)/15;
+        return (Kp*propotionAngle+Ki*integralAngle+Kd*differentiationAngle) / 15;
     }
 
     /**
@@ -315,13 +321,13 @@ public class manual_Iterative_Wy extends OpMode
      * 使用方法：车头对准篮筐后，直接调用。
      * ******************************************************************************
      * */
-    public void slopeModify(){
+    public void slopeModify(double distance){
         final double carHeight = 0.3;//车高
         final double shootHeight = 1.0;//篮筐高度
         final double g_v2 = 1.0;//   重力/(发射速度的平方)
         final double angleToPosition = 0.5;//角度转换成舵机位置
 
-        double distance = ( (DistanceSensor) colorSensor ).getDistance(DistanceUnit.CM);//传感器获取距离
+//        double distance = ( (DistanceSensor) colorSensor ).getDistance(DistanceUnit.CM);//传感器获取距离
         double slopeAngle, calculateAssistAngle;
         //计算斜坡需要的角度
         calculateAssistAngle = Math.atan((carHeight-shootHeight)/distance);
@@ -330,6 +336,69 @@ public class manual_Iterative_Wy extends OpMode
         slopeAngle = Math.toDegrees(slopeAngle / 2);
 
         slope.setPosition(slopeAngle * angleToPosition);
+    }
+
+    /**
+     * ********************************positionUpdate**********************************
+     * 功能描述：根据编码器和陀螺仪的值，更新当前坐标，并输出到屏幕
+     *          以赛场左下角为原点，向右为x正方向，向前为y正方向
+     * 使用方法：直接调用
+     * ********************************************************************************
+     * */
+    double position_x = 2, position_y = 0.5;
+    int lastSideEncoder = 0, lastMidEncoder = 0;
+    public void positionUpdate(){
+        //编码器参数
+        final int perRound = 4096;
+        final double diameter = 3.1;
+        final double circumference = diameter * Math.PI;
+        //获取编码器和陀螺仪值
+        int sideEncoder, midEncoder;
+        double angle;
+        sideEncoder = RightFront.getCurrentPosition() + LeftFront.getCurrentPosition();
+        sideEncoder /= 2;
+        midEncoder = RightRear.getCurrentPosition();
+        angle = imu.getAngularOrientation().firstAngle;
+
+        double deltaSide, deltaMid;
+        double cosA, sinA;
+        deltaSide = sideEncoder - lastSideEncoder;
+        deltaSide = deltaSide / perRound * circumference;
+        deltaMid = midEncoder - lastMidEncoder;
+        deltaMid = deltaMid / perRound * circumference;
+        sinA = Math.sin(Math.toDegrees(angle));
+        cosA = Math.cos(Math.toDegrees(angle));
+
+        position_x -= deltaSide * sinA;
+        position_x += deltaMid * cosA;
+        position_y += deltaSide * cosA;
+        position_y += deltaMid * sinA;
+
+        lastMidEncoder = midEncoder;
+        lastSideEncoder = sideEncoder;
+        telemetry.addData("position","x:%.2f ,y:%.2f",position_x,position_y);
+    }
+
+    /**
+     * *****************************autoAim******************************************
+     * 功能描述：自动瞄准，并调整斜坡位置
+     *          根据当前车子坐标和篮筐坐标，调整targetAngle进行瞄准
+     *          调用slopeModify进行斜坡调整
+     * 使用方法：直接调用
+     * 注意: 1. 瞄准只改变targetAngle,没转向,所以要等转向完毕后再按发射键
+     *      2. 为避免重复运算,按下瞄准键后只进行一次调用
+     * *******************************************************************************
+     * */
+    public void autoAim(){
+        //首先计算当前位置与目标坐标连线的和y轴正方向(陀螺仪0°角)夹角,并设定
+        final double basket_x = 5.1, basket_y = 5.1;
+        double relative_x, relative_y;
+        relative_x = basket_x - position_x;
+        relative_y = basket_y - position_y;
+        targetAngle = Math.toDegrees(Math.atan(relative_x/relative_y));
+        //斜坡(发射角度)调整
+        double distance = Math.sqrt(relative_x*relative_x + relative_y*relative_y);
+        slopeModify(distance);
     }
 
     //按下停止
