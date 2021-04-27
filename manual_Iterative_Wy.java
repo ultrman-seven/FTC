@@ -108,7 +108,7 @@ public class manual_Iterative_Wy extends OpMode
         parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
         imu = hardwareMap.get(BNO055IMU.class, "imu");
         //颜色传感器
-        colorSensor = hardwareMap.get(NormalizedColorSensor.class, "sensor_color");
+        //colorSensor = hardwareMap.get(NormalizedColorSensor.class, "sensor_color");
         //定义电机
         LeftFront     = hardwareMap.get(DcMotor.class, "leftfront");
         LeftRear      = hardwareMap.get(DcMotor.class, "leftrear");
@@ -179,9 +179,9 @@ public class manual_Iterative_Wy extends OpMode
     @Override
 
     public void loop() {
-        //----------------------------目标角跟随参数--------------------------------------------------
-        final double angleIncreaseCoefficient = 1;
-        //------------------------------------------------------------------------------------------
+        positionUpdate();
+        testSlope();
+        //readEncoder();
 
         //---------------------------获取部分按键值---------------------------------------------------
         float x, y;
@@ -195,6 +195,8 @@ public class manual_Iterative_Wy extends OpMode
         //------------------------------获取结束-----------------------------------------------------
 
         //----设定pid修正的目标角，调整‘angleIncreaseCoefficient’使其与车子旋转角度基本一致--------------
+        final double angleIncreaseCoefficient = 2.5;
+        //------------------------------------------------------------------------------------------
         if (targetAngle < 160)
             targetAngle += angleIncreaseCoefficient * lt;
         else
@@ -209,7 +211,7 @@ public class manual_Iterative_Wy extends OpMode
         if (gamepad1.left_bumper) {
             if(lbFlag == false){
                 lbFlag = true;
-                targetAngle += 5;
+                targetAngle += (targetAngle < 160) ? 5 : 0;
             }
         }
         else
@@ -217,7 +219,7 @@ public class manual_Iterative_Wy extends OpMode
         if (gamepad1.right_bumper){
             if(rbFlag == false){
                 rbFlag = true;
-                targetAngle -= 5;
+                targetAngle -= (targetAngle> -160) ? 5 : 0;
             }
         }
         else
@@ -255,11 +257,25 @@ public class manual_Iterative_Wy extends OpMode
         final double TRI_STOP =0.5;
         //------------------------------------------------------------------------------------------
 
+        //---------------------------------------瞄准-----------------------------------------------
+        if(gamepad2.y)
+            autoAim();
+        //-----------------------------------------------------------------------------------------
+
         //------------------------------------trigger复位-------------------------------------------
         if (triggerFlag == false) {
-            while (touchsensor0.getState() == false)
-                trigger.setPosition(TRI_RUN);
-            trigger.setPosition(TRI_STOP);
+            elevatorleft.setPosition(MAX_POS_left);
+            elevatorright.setPosition(MAX_POS_right);
+            resetLoop :while (true) {
+                if (touchsensor1.getState() == true)
+                    trigger.setPosition(TRI_RUN);
+                if (touchsensor0.getState() == true) {
+                    trigger.setPosition(TRI_STOP);
+                    elevatorleft.setPosition(MIN_POS_left);
+                    elevatorright.setPosition(MIN_POS_right);
+                    break resetLoop;
+                }
+            }
             triggerFlag = true;
         }
         //-----------------------------------复位结束------------------------------------------------
@@ -318,14 +334,16 @@ public class manual_Iterative_Wy extends OpMode
     /**
      * *******************************slopeModify************************************
      * 功能描述：根据离篮筐的距离，计算所需的发射角度，调整slope角度。
-     * 使用方法：车头对准篮筐后，直接调用。
+     * 使用方法：直接调用,参数为距离。
+     * 初始角18°
+     * 0.1 -- 8°
      * ******************************************************************************
      * */
     public void slopeModify(double distance){
-        final double carHeight = 0.3;//车高
-        final double shootHeight = 1.0;//篮筐高度
+        final double carHeight = 24;//车高
+        final double shootHeight = 94;//篮筐高度
         final double g_v2 = 1.0;//   重力/(发射速度的平方)
-        final double angleToPosition = 0.5;//角度转换成舵机位置
+        final double angleToPosition = 0.1 / 8;//角度转换成舵机位置
 
 //        double distance = ( (DistanceSensor) colorSensor ).getDistance(DistanceUnit.CM);//传感器获取距离
         double slopeAngle, calculateAssistAngle;
@@ -338,6 +356,12 @@ public class manual_Iterative_Wy extends OpMode
         slope.setPosition(slopeAngle * angleToPosition);
     }
 
+    public void readEncoder(){
+        telemetry.addData("left encoder","%d",LeftFront.getCurrentPosition());
+        telemetry.addData("right encoder","%d",RightFront.getCurrentPosition());
+        telemetry.addData("mid encoder","%d",RightRear.getCurrentPosition());
+    }
+
     /**
      * ********************************positionUpdate**********************************
      * 功能描述：根据编码器和陀螺仪的值，更新当前坐标，并输出到屏幕
@@ -345,38 +369,36 @@ public class manual_Iterative_Wy extends OpMode
      * 使用方法：直接调用
      * ********************************************************************************
      * */
-    double position_x = 2, position_y = 0.5;
+    final int perRound = 4096;
+    final double diameter = 3.8;
+    final double circumference = diameter * Math.PI;
+    double position_x = 22.5 * perRound / circumference, position_y = 22.5 * perRound / circumference;
     int lastSideEncoder = 0, lastMidEncoder = 0;
     public void positionUpdate(){
         //编码器参数
-        final int perRound = 4096;
-        final double diameter = 3.1;
-        final double circumference = diameter * Math.PI;
+
         //获取编码器和陀螺仪值
         int sideEncoder, midEncoder;
         double angle;
-        sideEncoder = RightFront.getCurrentPosition() + LeftFront.getCurrentPosition();
-        sideEncoder /= 2;
+        sideEncoder = (RightFront.getCurrentPosition() + LeftFront.getCurrentPosition())/2;
         midEncoder = RightRear.getCurrentPosition();
         angle = imu.getAngularOrientation().firstAngle;
 
         double deltaSide, deltaMid;
         double cosA, sinA;
-        deltaSide = sideEncoder - lastSideEncoder;
-        deltaSide = deltaSide / perRound * circumference;
-        deltaMid = midEncoder - lastMidEncoder;
-        deltaMid = deltaMid / perRound * circumference;
-        sinA = Math.sin(Math.toDegrees(angle));
-        cosA = Math.cos(Math.toDegrees(angle));
+        deltaSide =( sideEncoder - lastSideEncoder);
+        deltaMid = (midEncoder - lastMidEncoder);
+        sinA = Math.sin(Math.toRadians(angle));
+        cosA = Math.cos(Math.toRadians(angle));
 
-        position_x -= deltaSide * sinA;
+        position_x += deltaSide * sinA;
         position_x += deltaMid * cosA;
-        position_y += deltaSide * cosA;
+        position_y -= deltaSide * cosA;
         position_y += deltaMid * sinA;
 
         lastMidEncoder = midEncoder;
         lastSideEncoder = sideEncoder;
-        telemetry.addData("position","x:%.2f ,y:%.2f",position_x,position_y);
+        telemetry.addData("position(cm)","x:%.2f ,y:%.2f",position_x / perRound * circumference,position_y / perRound * circumference);
     }
 
     /**
@@ -391,14 +413,35 @@ public class manual_Iterative_Wy extends OpMode
      * */
     public void autoAim(){
         //首先计算当前位置与目标坐标连线的和y轴正方向(陀螺仪0°角)夹角,并设定
-        final double basket_x = 5.1, basket_y = 5.1;
+        final double basket_x = 275 * perRound / circumference, basket_y = 361 * perRound / circumference;
         double relative_x, relative_y;
         relative_x = basket_x - position_x;
         relative_y = basket_y - position_y;
-        targetAngle = Math.toDegrees(Math.atan(relative_x/relative_y));
+        targetAngle = -Math.toDegrees(Math.atan(relative_x/relative_y));
         //斜坡(发射角度)调整
         double distance = Math.sqrt(relative_x*relative_x + relative_y*relative_y);
-        slopeModify(distance);
+        //slopeModify(distance);
+    }
+
+    double slopePosition = 0.6;
+    boolean lbF = false, rbF = false;
+    public void testSlope(){
+        if(gamepad2.right_bumper) {
+            if(rbF == false) {
+                rbF = true;
+                slopePosition -= (slopePosition > 0) ? 0.1 : 0;
+            }
+        }
+        else rbF = false;
+
+        if(gamepad2.left_bumper) {
+            if(lbF == false) {
+                lbF =true;
+                slopePosition += (slopePosition < 1) ? 0.1 : 0;
+            }
+        }
+        else lbF = false;
+        slope.setPosition(slopePosition);
     }
 
     //按下停止
