@@ -89,6 +89,8 @@ public class manual_Iterative_Wy extends OpMode
     public void init() {
         telemetry.addData("Status", "Initialized");
 
+        position_x = 22.5 * perRound / circumference;
+        position_y = 22.5 * perRound / circumference;
         elevatorFlag = triggerFlag = false;
 
         //定义imu
@@ -173,6 +175,7 @@ public class manual_Iterative_Wy extends OpMode
         positionUpdate();
         //testSlope();
         //readEncoder();
+        slopeTest();
 
         //---------------------------获取部分按键值---------------------------------------------------
         float x, y;
@@ -237,25 +240,25 @@ public class manual_Iterative_Wy extends OpMode
         //------------------------------------------------------------------------------------------
 
         //---------------------------------------瞄准-----------------------------------------------
-        if (gamepad2.dpad_up) {
+        if (gamepad1.dpad_up) {
             if(!aimFlag) {
                 aimFlag = true;
                 autoAim(TargetObject.BASKET);
             }
         }
-        else if(gamepad2.dpad_left){
+        else if(gamepad1.dpad_left){
             if(!aimFlag) {
                 aimFlag = true;
                 autoAim(TargetObject.FIR_POLE);
             }
         }
-        else if (gamepad2.dpad_down){
+        else if (gamepad1.dpad_down){
             if(!aimFlag) {
                 aimFlag = true;
                 autoAim(TargetObject.SEC_POLE);
             }
         }
-        else if (gamepad2.dpad_right){
+        else if (gamepad1.dpad_right){
             if(!aimFlag) {
                 aimFlag = true;
                 autoAim(TargetObject.THI_POLE);
@@ -359,6 +362,9 @@ public class manual_Iterative_Wy extends OpMode
     double position_x = 22.5 * perRound / circumference, position_y = 22.5 * perRound / circumference;
     int lastSideEncoder = 0, lastMidEncoder = 0;
     public void positionUpdate(){
+        if(gamepad1.x){
+            init();
+        }
         //获取编码器和陀螺仪值
         int sideEncoder = (RightFront.getCurrentPosition() + LeftFront.getCurrentPosition())/2;
         int midEncoder = RightRear.getCurrentPosition();
@@ -397,26 +403,31 @@ public class manual_Iterative_Wy extends OpMode
     }
     public void autoAim(TargetObject select){
         //首先计算当前位置与目标坐标连线的和y轴正方向(陀螺仪0°角)夹角,并设定
-        final double BASKET_X = 275, BASKET_Y = 361;
-        final double FIR_POLE_X = 1, FIR_POLE_Y = 1;
-        final double SEC_POLE_X = 1, SEC_POLE_Y = 1;
-        final double THI_POLE_X = 1, THI_POLE_Y = 1;
+        final double BASKET_X = 92, BASKET_Y = 361;
+        final double FIR_POLE_X = 13, FIR_POLE_Y = 361;
+        final double SEC_POLE_X = 31.5, SEC_POLE_Y = 361;
+        final double THI_POLE_X = 50.5, THI_POLE_Y = 361;
         double x, y;
         switch (select) {
             case BASKET:
                 x = BASKET_X;
                 y = BASKET_Y;
+                break;
             case FIR_POLE:
                 x = FIR_POLE_X;
                 y = FIR_POLE_Y;
+                break;
             case SEC_POLE:
                 x = SEC_POLE_X;
                 y = SEC_POLE_Y;
+                break;
             case THI_POLE:
                 x = THI_POLE_X;
                 y = THI_POLE_Y;
+                break;
             default:
                 x = y = 1;
+                break;
         }
         double relative_x = x - position_x / perRound * circumference;
         double relative_y = y - position_y / perRound * circumference;
@@ -439,10 +450,11 @@ public class manual_Iterative_Wy extends OpMode
      *注意事项: 1. 为了使表达式简单,本函数使用单位米(m)
      * ******************************************************************************
      * */
+    double g_v2 = 0.0168328914699322;//   重力/(发射速度的平方)
     public void slopeModify(double distance){
         final double carHeight = 0.24;//车高
         final double shootHeight = 0.94;//篮筐高度
-        final double g_v2 = 1.0;//   重力/(发射速度的平方)
+
         final double angleToPosition = -0.1 / 8, compensate = 0.825;//角度转换成舵机位置的线性关系系数
         //计算斜坡需要的角度
         double slopeAngle, calculateAssistAngle;
@@ -453,6 +465,7 @@ public class manual_Iterative_Wy extends OpMode
         slopeAngle = Math.toDegrees(slopeAngle / 2);
 
         slope.setPosition(slopeAngle * angleToPosition + compensate);
+        telemetry.addData("slope","%.5f",slopeAngle);
     }
 
     /**
@@ -490,6 +503,30 @@ public class manual_Iterative_Wy extends OpMode
         }
         else lbF = false;
         slope.setPosition(slopePosition);
+    }
+
+
+    public void slopeTest(){
+        final double testDistance = 1.67;
+        if(gamepad2.right_bumper) {
+            if(rbF == false) {
+                rbF = true;
+                g_v2 -= (g_v2 > 0) ? 0.001 : 0;
+                slopeModify(testDistance);
+            }
+        }
+        else rbF = false;
+
+        if(gamepad2.left_bumper) {
+            if(lbF == false) {
+                lbF =true;
+                g_v2 += (g_v2 < 0.1) ? 0.001 : 0;
+                slopeModify(testDistance);
+            }
+        }
+        else lbF = false;
+
+        telemetry.addData("G/V2","%.5f",g_v2);
     }
 
     //按下停止
