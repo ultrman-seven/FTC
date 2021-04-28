@@ -34,7 +34,6 @@ import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DigitalChannel;
-import com.qualcomm.robotcore.hardware.NormalizedColorSensor;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
@@ -177,29 +176,23 @@ public class manual_Iterative_Wy extends OpMode
 
         //---------------------------获取部分按键值---------------------------------------------------
         float x, y;
-        float lt, rt;
         float intakePower;
         y            = -gamepad1.left_stick_y ;
         x            = gamepad1.right_stick_x ;
-        lt           = gamepad1.left_trigger;
-        rt           = gamepad1.right_trigger;
         intakePower  =-gamepad2.left_stick_y;
         //------------------------------获取结束-----------------------------------------------------
 
-//****************************              设定pid修正的目标角,进行角度调整               **********************************
+//****************************************设定pid修正的目标角,进行角度调整*****************************************
         //------------大调,按下lt和rt进行旋转，调整‘angleIncreaseCoefficient’以改变其速度---------------
         final double angleIncreaseCoefficient = 3.5;
         if (targetAngle < 160)
-            targetAngle += angleIncreaseCoefficient * lt;
-        else
-            lt = 0;
+            targetAngle += angleIncreaseCoefficient * gamepad1.left_trigger;
+
         if (targetAngle> -160)
-            targetAngle -= angleIncreaseCoefficient * rt;
-        else
-            rt = 0;
-        //----------------------小调,按lb和rb进行角度微调，按一下调5度。------------------------------
+            targetAngle -= angleIncreaseCoefficient * gamepad1.right_trigger;
+        //----------------------小调,按lb和rb进行角度微调，按一下调5度。-------------------------------
         if (gamepad1.left_bumper) {
-            if(lbFlag == false){
+            if(!lbFlag){
                 lbFlag = true;
                 targetAngle += (targetAngle < 160) ? 5 : 0;
             }
@@ -207,14 +200,14 @@ public class manual_Iterative_Wy extends OpMode
         else
             lbFlag = false;
         if (gamepad1.right_bumper){
-            if(rbFlag == false){
+            if(!rbFlag){
                 rbFlag = true;
                 targetAngle -= (targetAngle> -160) ? 5 : 0;
             }
         }
         else
             rbFlag = false;
-        //-----------------调整至绝对角度：0°------------------------------
+        //------------------------------调整至绝对角度：0°-------------------------------------------
         if (gamepad1.b)
             targetAngle = 0;
 //*****************************************角度调整结束**************************************************************
@@ -244,50 +237,57 @@ public class manual_Iterative_Wy extends OpMode
         //------------------------------------------------------------------------------------------
 
         //---------------------------------------瞄准-----------------------------------------------
-        if(aimFlag == false) {
-            if (gamepad2.dpad_up) {
+        if (gamepad2.dpad_up) {
+            if(!aimFlag) {
                 aimFlag = true;
                 autoAim(TargetObject.BASKET);
             }
-            else if(gamepad2.dpad_left){
+        }
+        else if(gamepad2.dpad_left){
+            if(!aimFlag) {
                 aimFlag = true;
                 autoAim(TargetObject.FIR_POLE);
             }
-            else if (gamepad2.dpad_down){
+        }
+        else if (gamepad2.dpad_down){
+            if(!aimFlag) {
                 aimFlag = true;
                 autoAim(TargetObject.SEC_POLE);
             }
-            else if (gamepad2.dpad_right){
+        }
+        else if (gamepad2.dpad_right){
+            if(!aimFlag) {
                 aimFlag = true;
                 autoAim(TargetObject.THI_POLE);
             }
-            else aimFlag = false;
         }
+        else aimFlag = false;
+
         //-----------------------------------------------------------------------------------------
 
         //------------------------------------trigger复位-------------------------------------------
-        if (triggerFlag == false) {
-            if(elevatorFlag == false) {
+        if (!triggerFlag) {
+            if(!elevatorFlag) {
                 elevatorLeft.setPosition(MAX_POS_left);
                 elevatorRight.setPosition(MAX_POS_right);
             }
-            resetLoop :while (true) {
-                if (touchSensor1.getState() == true)
+            while (true) {
+                if (touchSensor1.getState())
                     trigger.setPosition(TRI_RUN);
-                if (touchSensor0.getState() == true) {
+                if (touchSensor0.getState()) {
                     trigger.setPosition(TRI_STOP);
-                    if(elevatorFlag == false) {
+                    if(!elevatorFlag) {
                         elevatorLeft.setPosition(MIN_POS_left);
                         elevatorRight.setPosition(MIN_POS_right);
                     }
-                    break resetLoop;
+                    break;
                 }
             }
             triggerFlag = true;
         }
         //-----------------------------------复位结束------------------------------------------------
 
-        if (elevatorFlag == false) {//电梯在下面时按下Y，则升起电梯
+        if (!elevatorFlag) {//电梯在下面时按下Y，则升起电梯
             if(gamepad2.y) {
                 elevatorLeft.setPosition(MAX_POS_left);
                 elevatorRight.setPosition(MAX_POS_right);
@@ -313,11 +313,16 @@ public class manual_Iterative_Wy extends OpMode
 
         // Show the elapsed game time and wheel power.
         telemetry.addData("Status", "Run Time: " + runtime.toString());
-        telemetry.addData("Motors", "left (%.2f), right (%.2f)", y, x);
-        telemetry.addData("Motors", "left (%.2f), right (%.2f)", lt, rt);
-
         telemetry.update();
     }
+
+    /**
+     * *****************************************************************************************
+     * *************************                      *******************************************
+     * **********            以下为定义的函数(方法)             ************************************
+     * **************************                      ********************************************
+     * *********************************************************************************************
+     * */
 
     /**
      * **************************gyroModifyPID***********************************
@@ -339,7 +344,6 @@ public class manual_Iterative_Wy extends OpMode
         lastAngleErr=proportionAngle;
         return (Kp*proportionAngle+Ki*integralAngle+Kd*differentiationAngle) / 15;
     }
-
 
     /**
      * ********************************positionUpdate**********************************
@@ -379,11 +383,13 @@ public class manual_Iterative_Wy extends OpMode
     /**
      * *****************************autoAim******************************************
      * 功能描述：自动瞄准，并调整斜坡位置
-     *          根据当前车子坐标和篮筐坐标，调整targetAngle进行瞄准
+     *          根据当前车子坐标和目标位置的坐标，调整targetAngle进行瞄准
      *          调用slopeModify进行斜坡调整
-     * 使用方法：直接调用
+     * 使用方法：直接调用, 参数为枚举对象TargetObject
      * 注意: 1. 瞄准只改变targetAngle,没转向,所以要等转向完毕后再按发射键
      *      2. 为避免重复运算,按下瞄准键后只进行一次调用
+     *      3. 目标位置的坐标值单位是厘米(cm)
+     *      4. 传给slopeModify的参数的单位是米(m)
      * *******************************************************************************
      * */
     enum TargetObject {
@@ -430,19 +436,19 @@ public class manual_Iterative_Wy extends OpMode
      *                  0.7 - 26
      *                  0.8 - 34
      *                  position = - 0.1 / 8 * angle + 0.825
-     *注意事项: 1. 为了使表达式简单,本函数使用单位米
+     *注意事项: 1. 为了使表达式简单,本函数使用单位米(m)
      * ******************************************************************************
      * */
     public void slopeModify(double distance){
         final double carHeight = 0.24;//车高
         final double shootHeight = 0.94;//篮筐高度
         final double g_v2 = 1.0;//   重力/(发射速度的平方)
-        final double angleToPosition = -0.1 / 8;//角度转换成舵机位置
-        final double compensate = 0.825;
-        double slopeAngle, calculateAssistAngle;
+        final double angleToPosition = -0.1 / 8, compensate = 0.825;//角度转换成舵机位置的线性关系系数
         //计算斜坡需要的角度
+        double slopeAngle, calculateAssistAngle;
         calculateAssistAngle = Math.atan((carHeight-shootHeight)/distance);
-        slopeAngle = (distance*distance*g_v2+shootHeight-carHeight)/Math.sqrt(distance*distance+(shootHeight-carHeight)*(shootHeight-carHeight));
+        slopeAngle = (distance*distance*g_v2+shootHeight-carHeight)
+                / Math.sqrt(distance*distance+(shootHeight-carHeight)*(shootHeight-carHeight));
         slopeAngle = Math.asin(slopeAngle) - calculateAssistAngle;
         slopeAngle = Math.toDegrees(slopeAngle / 2);
 
@@ -451,7 +457,7 @@ public class manual_Iterative_Wy extends OpMode
 
     /**
      * ********************************临时函数readEncoder*******************************************
-     * 功能描述:
+     * 功能描述: 读取三个轮子的编码器的值,并显示在屏幕上
      * *********************************************************************************************
      * */
     public void readEncoder(){
@@ -462,7 +468,7 @@ public class manual_Iterative_Wy extends OpMode
 
     /**
      * ********************************临时函数slopePosition*******************************************
-     * 功能描述:
+     * 功能描述: 通过按下rb和lb,使slope的舵机位置每次增减0.1,并量出对应的角度,以确定舵机位置和角度的线性关系
      * *********************************************************************************************
      * */
     double slopePosition = 0.6;
@@ -490,5 +496,4 @@ public class manual_Iterative_Wy extends OpMode
     @Override
     public void stop() {
     }
-
 }
