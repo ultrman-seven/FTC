@@ -77,6 +77,7 @@ public class manual_Iterative_Wy extends OpMode
     //--------------------------------声明结束------------------------------------------------------
 
     double targetAngle = 0;
+    double angleOfSlope = 0;
 
     boolean elevatorFlag = false;//电梯位置标志
     boolean triggerFlag = false;//
@@ -173,9 +174,6 @@ public class manual_Iterative_Wy extends OpMode
 
     public void loop() {
         positionUpdate();
-        //testSlope();
-        //readEncoder();
-        slopeTest();
 
         //---------------------------获取部分按键值---------------------------------------------------
         float x, y;
@@ -243,29 +241,29 @@ public class manual_Iterative_Wy extends OpMode
         if (gamepad1.dpad_up) {
             if(!aimFlag) {
                 aimFlag = true;
-                autoAim(TargetObject.BASKET);
+                angleOfSlope = autoAim(TargetObject.BASKET);
             }
         }
         else if(gamepad1.dpad_left){
             if(!aimFlag) {
                 aimFlag = true;
-                autoAim(TargetObject.FIR_POLE);
+                angleOfSlope = autoAim(TargetObject.FIR_POLE);
             }
         }
         else if (gamepad1.dpad_down){
             if(!aimFlag) {
                 aimFlag = true;
-                autoAim(TargetObject.SEC_POLE);
+                angleOfSlope = autoAim(TargetObject.SEC_POLE);
             }
         }
         else if (gamepad1.dpad_right){
             if(!aimFlag) {
                 aimFlag = true;
-                autoAim(TargetObject.THI_POLE);
+                angleOfSlope = autoAim(TargetObject.THI_POLE);
             }
         }
         else aimFlag = false;
-
+        telemetry.addData("slope","%.3f",angleOfSlope);
         //-----------------------------------------------------------------------------------------
 
         //------------------------------------trigger复位-------------------------------------------
@@ -392,6 +390,8 @@ public class manual_Iterative_Wy extends OpMode
      *          根据当前车子坐标和目标位置的坐标，调整targetAngle进行瞄准
      *          调用slopeModify进行斜坡调整
      * 使用方法：直接调用, 参数为枚举对象TargetObject
+     * 函数关系式:
+     *          *
      * 注意: 1. 瞄准只改变targetAngle,没转向,所以要等转向完毕后再按发射键
      *      2. 为避免重复运算,按下瞄准键后只进行一次调用
      *      3. 目标位置的坐标值单位是厘米(cm)
@@ -401,7 +401,7 @@ public class manual_Iterative_Wy extends OpMode
     enum TargetObject {
         BASKET, FIR_POLE, SEC_POLE, THI_POLE;
     }
-    public void autoAim(TargetObject select){
+    public double autoAim(TargetObject select){
         //首先计算当前位置与目标坐标连线的和y轴正方向(陀螺仪0°角)夹角,并设定
         final double BASKET_X = 92, BASKET_Y = 361;
         final double FIR_POLE_X = 13, FIR_POLE_Y = 361;
@@ -434,7 +434,7 @@ public class manual_Iterative_Wy extends OpMode
         targetAngle = -Math.toDegrees(Math.atan(relative_x/relative_y));
         //斜坡(发射角度)调整
         double distance = Math.sqrt(relative_x*relative_x + relative_y*relative_y);
-        slopeModify(distance / 100);
+        return slopeModify(distance / 100);
     }
 
     /**
@@ -450,22 +450,22 @@ public class manual_Iterative_Wy extends OpMode
      *注意事项: 1. 为了使表达式简单,本函数使用单位米(m)
      * ******************************************************************************
      * */
-    double g_v2 = 0.0168328914699322;//   重力/(发射速度的平方)
-    public void slopeModify(double distance){
+
+    public double slopeModify(double distance){
         final double carHeight = 0.24;//车高
         final double shootHeight = 0.94;//篮筐高度
-
+        final double g_v2 = 0.0168328914699322;//   重力/(发射速度的平方)
         final double angleToPosition = -0.1 / 8, compensate = 0.825;//角度转换成舵机位置的线性关系系数
         //计算斜坡需要的角度
         double slopeAngle, calculateAssistAngle;
         calculateAssistAngle = Math.atan((carHeight-shootHeight)/distance);
-        slopeAngle = (distance*distance*g_v2+shootHeight-carHeight)
-                / Math.sqrt(distance*distance+(shootHeight-carHeight)*(shootHeight-carHeight));
+        slopeAngle = (distance*distance*g_v2 + shootHeight - carHeight)
+                / Math.sqrt(distance*distance + (shootHeight-carHeight)*(shootHeight-carHeight));
         slopeAngle = Math.asin(slopeAngle) - calculateAssistAngle;
         slopeAngle = Math.toDegrees(slopeAngle / 2);
 
         slope.setPosition(slopeAngle * angleToPosition + compensate);
-        telemetry.addData("slope","%.5f",slopeAngle);
+        return slopeAngle;
     }
 
     /**
@@ -480,53 +480,40 @@ public class manual_Iterative_Wy extends OpMode
     }
 
     /**
-     * ********************************临时函数slopePosition*******************************************
-     * 功能描述: 通过按下rb和lb,使slope的舵机位置每次增减0.1,并量出对应的角度,以确定舵机位置和角度的线性关系
+     * ********************************临时函数testSlope*********************************************
+     * 功能描述: 通过按下rb和lb;rt和lt,调整position = a * angle + b的系数
      * *********************************************************************************************
      * */
-    double slopePosition = 0.6;
+    double a = -0.0125, b = 0.825;
     boolean lbF = false, rbF = false;
-    public void testSlope(){
+    public void testSlope(double angle){
+        double position = a * angle + b;
         if(gamepad2.right_bumper) {
-            if(rbF == false) {
+            if(!rbF) {
                 rbF = true;
-                slopePosition -= (slopePosition > 0) ? 0.1 : 0;
+                a += 0.0005;
+            }
+        } else if(gamepad2.right_trigger > 0) {
+            if (!rbF) {
+                rbF = true;
+                b += 0.005;
             }
         }
         else rbF = false;
 
         if(gamepad2.left_bumper) {
-            if(lbF == false) {
+            if(!lbF) {
                 lbF =true;
-                slopePosition += (slopePosition < 1) ? 0.1 : 0;
+                a -= 0.0005;
+            }
+        }else if(gamepad2.left_trigger > 0){
+            if(!lbF) {
+                lbF =true;
+                b -= 0.005;
             }
         }
         else lbF = false;
-        slope.setPosition(slopePosition);
-    }
-
-
-    public void slopeTest(){
-        final double testDistance = 1.67;
-        if(gamepad2.right_bumper) {
-            if(rbF == false) {
-                rbF = true;
-                g_v2 -= (g_v2 > 0) ? 0.001 : 0;
-                slopeModify(testDistance);
-            }
-        }
-        else rbF = false;
-
-        if(gamepad2.left_bumper) {
-            if(lbF == false) {
-                lbF =true;
-                g_v2 += (g_v2 < 0.1) ? 0.001 : 0;
-                slopeModify(testDistance);
-            }
-        }
-        else lbF = false;
-
-        telemetry.addData("G/V2","%.5f",g_v2);
+        slope.setPosition(position);
     }
 
     //按下停止
