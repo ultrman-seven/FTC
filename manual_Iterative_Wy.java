@@ -174,6 +174,7 @@ public class manual_Iterative_Wy extends OpMode
 
     public void loop() {
         positionUpdate();
+        //testSlope(30);
 
         //---------------------------获取部分按键值---------------------------------------------------
         float x, y;
@@ -402,6 +403,8 @@ public class manual_Iterative_Wy extends OpMode
         BASKET, FIR_POLE, SEC_POLE, THI_POLE;
     }
     public double autoAim(TargetObject select){
+        final double shootAngleModify =
+                Math.toDegrees(Math.acos( 0.994337680164722 ));
         //首先计算当前位置与目标坐标连线的和y轴正方向(陀螺仪0°角)夹角,并设定
         final double BASKET_X = 92, BASKET_Y = 361;
         final double FIR_POLE_X = 13, FIR_POLE_Y = 361;
@@ -431,7 +434,7 @@ public class manual_Iterative_Wy extends OpMode
         }
         double relative_x = x - position_x / perRound * circumference;
         double relative_y = y - position_y / perRound * circumference;
-        targetAngle = -Math.toDegrees(Math.atan(relative_x/relative_y));
+        targetAngle = -Math.toDegrees(Math.atan(relative_x/relative_y)) - shootAngleModify;
         //斜坡(发射角度)调整
         double distance = Math.sqrt(relative_x*relative_x + relative_y*relative_y);
         return slopeModify(distance / 100);
@@ -455,7 +458,7 @@ public class manual_Iterative_Wy extends OpMode
         final double carHeight = 0.24;//车高
         final double shootHeight = 0.94;//篮筐高度
         final double g_v2 = 0.0168328914699322;//   重力/(发射速度的平方)
-        final double angleToPosition = -0.1 / 8, compensate = 0.825;//角度转换成舵机位置的线性关系系数
+        final double angleToPosition = -0.0160, compensate = 0.825;//角度转换成舵机位置的线性关系系数
         //计算斜坡需要的角度
         double slopeAngle, calculateAssistAngle;
         calculateAssistAngle = Math.atan((carHeight-shootHeight)/distance);
@@ -465,6 +468,7 @@ public class manual_Iterative_Wy extends OpMode
         slopeAngle = Math.toDegrees(slopeAngle / 2);
 
         slope.setPosition(slopeAngle * angleToPosition + compensate);
+        telemetry.addData("s position","%.3f",slopeAngle * angleToPosition + compensate);
         return slopeAngle;
     }
 
@@ -514,6 +518,8 @@ public class manual_Iterative_Wy extends OpMode
         }
         else lbF = false;
         slope.setPosition(position);
+        telemetry.addData("a","%.4f",a);
+        telemetry.addData("b","%.4f",b);
     }
 
     //按下停止
