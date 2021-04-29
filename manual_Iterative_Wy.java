@@ -90,11 +90,14 @@ public class manual_Iterative_Wy extends OpMode
     public void init() {
         telemetry.addData("Status", "Initialized");
 
-        position_x = 22.5 * perRound / circumference;
-        position_y = 22.5 * perRound / circumference;
         elevatorFlag = triggerFlag = false;
+        targetAngle = 0;
+        lastSideEncoder = lastMidEncoder = 0;
+        position_x = initX * perRound / circumference;
+        position_y = initY * perRound / circumference;
 
         //定义imu
+        imu = hardwareMap.get(BNO055IMU.class, "imu");
         BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
         parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
         parameters.accelUnit           = BNO055IMU.AccelUnit.METERS_PERSEC_PERSEC;
@@ -102,7 +105,12 @@ public class manual_Iterative_Wy extends OpMode
         parameters.loggingEnabled      = true;
         parameters.loggingTag          = "IMU";
         parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
-        imu = hardwareMap.get(BNO055IMU.class, "imu");
+
+        try {
+            Thread.sleep(500);//单位：毫秒
+        } catch (Exception e) {
+        }
+
         //定义电机
         LeftFront     = hardwareMap.get(DcMotor.class, "leftfront");
         LeftRear      = hardwareMap.get(DcMotor.class, "leftrear");
@@ -146,9 +154,13 @@ public class manual_Iterative_Wy extends OpMode
         //------------------------------------------------------------------------------------------
 
         //等待响应
-        //while (imu.isGyroCalibrated());
+        //while (!imu.isGyroCalibrated());
         //imu初始化
         imu.initialize(parameters);
+        try {
+            Thread.sleep(500);//单位：毫秒
+        } catch (Exception e) {
+        }
 
         // Tell the driver that initialization is complete.
         telemetry.addData("Status", "Initialized");
@@ -181,7 +193,7 @@ public class manual_Iterative_Wy extends OpMode
         float intakePower;
         y            = -gamepad1.left_stick_y ;
         x            = gamepad1.right_stick_x ;
-        intakePower  =-gamepad2.left_stick_y;
+        intakePower  = gamepad2.left_stick_y;
         //------------------------------获取结束-----------------------------------------------------
 
 //****************************************设定pid修正的目标角,进行角度调整*****************************************
@@ -216,7 +228,7 @@ public class manual_Iterative_Wy extends OpMode
 
         //-----------------------------------pid获取修正速度--------------------------------------
         double speedModify;//pid修正速度
-        speedModify=gyroModifyPID(targetAngle);
+        speedModify = gyroModifyPID(targetAngle);
         //-------------------------------------修正结束-------------------------------------------
 
         //---------------------------------设定轮子速度----------------------------------------------
@@ -344,6 +356,7 @@ public class manual_Iterative_Wy extends OpMode
         differentiationAngle=proportionAngle-lastAngleErr;//微分
         integralAngle=integralAngle+proportionAngle;//积分
         lastAngleErr=proportionAngle;
+        telemetry.addData("angle","%.3f",angle.firstAngle);
         return (Kp*proportionAngle+Ki*integralAngle+Kd*differentiationAngle) / 15;
     }
 
@@ -358,10 +371,12 @@ public class manual_Iterative_Wy extends OpMode
     final int perRound = 4096;
     final double diameter = 3.8;
     final double circumference = diameter * Math.PI;
-    double position_x = 22.5 * perRound / circumference, position_y = 22.5 * perRound / circumference;
+    final double initX = 26.5, initY = 31;
+    double position_x = initX * perRound / circumference,
+            position_y = initY * perRound / circumference;
     int lastSideEncoder = 0, lastMidEncoder = 0;
     public void positionUpdate(){
-        if(gamepad1.x){
+        if(gamepad1.x) {
             init();
         }
         //获取编码器和陀螺仪值
@@ -406,10 +421,10 @@ public class manual_Iterative_Wy extends OpMode
         final double shootAngleModify =
                 Math.toDegrees(Math.acos( 0.994337680164722 ));
         //首先计算当前位置与目标坐标连线的和y轴正方向(陀螺仪0°角)夹角,并设定
-        final double BASKET_X = 92, BASKET_Y = 361;
-        final double FIR_POLE_X = 13, FIR_POLE_Y = 361;
-        final double SEC_POLE_X = 31.5, SEC_POLE_Y = 361;
-        final double THI_POLE_X = 50.5, THI_POLE_Y = 361;
+        final double BASKET_X = 91.44, BASKET_Y = 365.76;
+        final double FIR_POLE_X = 10.795, FIR_POLE_Y = 365.76;
+        final double SEC_POLE_X = 31.115, SEC_POLE_Y = 365.76;
+        final double THI_POLE_X = 51.435, THI_POLE_Y = 365.76;
         double x, y;
         switch (select) {
             case BASKET:
@@ -437,7 +452,7 @@ public class manual_Iterative_Wy extends OpMode
         targetAngle = -Math.toDegrees(Math.atan(relative_x/relative_y)) - shootAngleModify;
         //斜坡(发射角度)调整
         double distance = Math.sqrt(relative_x*relative_x + relative_y*relative_y);
-        return slopeModify(distance / 100);
+        return slopeModify(distance / 100, select);
     }
 
     /**
@@ -454,16 +469,26 @@ public class manual_Iterative_Wy extends OpMode
      * ******************************************************************************
      * */
 
-    public double slopeModify(double distance){
+    public double slopeModify(double distance,TargetObject select){
         final double carHeight = 0.24;//车高
-        final double shootHeight = 0.94;//篮筐高度
+        final double poleHeight = 0.78184375;
+        final double basketHeight = 0.996375;//篮筐高度
         final double g_v2 = 0.0168328914699322;//   重力/(发射速度的平方)
-        final double angleToPosition = -0.0160, compensate = 0.825;//角度转换成舵机位置的线性关系系数
+        final double angleToPosition = -0.0135, compensate = 0.825;//角度转换成舵机位置的线性关系系数
         //计算斜坡需要的角度
+        double H;
+        switch (select){
+            case BASKET:
+                H = basketHeight;
+                break;
+            default:
+                H = poleHeight;
+                break;
+        }
         double slopeAngle, calculateAssistAngle;
-        calculateAssistAngle = Math.atan((carHeight-shootHeight)/distance);
-        slopeAngle = (distance*distance*g_v2 + shootHeight - carHeight)
-                / Math.sqrt(distance*distance + (shootHeight-carHeight)*(shootHeight-carHeight));
+        calculateAssistAngle = Math.atan((carHeight-H)/distance);
+        slopeAngle = (distance*distance*g_v2 + H - carHeight)
+                / Math.sqrt(distance*distance + (H-carHeight)*(H-carHeight));
         slopeAngle = Math.asin(slopeAngle) - calculateAssistAngle;
         slopeAngle = Math.toDegrees(slopeAngle / 2);
 
@@ -521,6 +546,29 @@ public class manual_Iterative_Wy extends OpMode
         telemetry.addData("a","%.4f",a);
         telemetry.addData("b","%.4f",b);
     }
+
+    public void imuInit(){
+        imu = hardwareMap.get(BNO055IMU.class, "imu");
+        BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
+        parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
+        parameters.accelUnit           = BNO055IMU.AccelUnit.METERS_PERSEC_PERSEC;
+        parameters.calibrationDataFile = "BNO055IMUCalibration.json";
+        parameters.loggingEnabled      = true;
+        parameters.loggingTag          = "IMU";
+        parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
+        while (!imu.isGyroCalibrated()) {
+            try {
+                Thread.sleep(1000);//单位：毫秒
+            } catch (Exception e) {
+            }
+        }
+        imu.initialize(parameters);
+        try {
+            Thread.sleep(1000);//单位：毫秒
+        } catch (Exception e) {
+        }
+    }
+
 
     //按下停止
     @Override
