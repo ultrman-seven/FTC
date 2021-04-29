@@ -29,203 +29,284 @@
 
 package org.firstinspires.ftc.teamcode;
 
-import android.graphics.RectF;
-
 import com.qualcomm.hardware.bosch.BNO055IMU;
 import com.qualcomm.hardware.bosch.JustLoggingAccelerationIntegrator;
-import com.qualcomm.hardware.modernrobotics.ModernRoboticsI2cGyro;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.Disabled;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.DigitalChannel;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.robotcontroller.external.samples.HardwarePushbot;
+import org.firstinspires.ftc.robotcore.external.ClassFactory;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
 import org.firstinspires.ftc.robotcore.external.navigation.Acceleration;
 import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
+import org.firstinspires.ftc.robotcore.external.navigation.VuforiaLocalizer;
+import org.firstinspires.ftc.robotcore.external.tfod.Recognition;
+import org.firstinspires.ftc.robotcore.external.tfod.TFObjectDetector;
 
-/**
- * This file illustrates the concept of driving a path based on Gyro heading and encoder counts.
- * It uses the common Pushbot hardware class to define the drive on the robot.
- * The code is structured as a LinearOpMode
- *
- * The code REQUIRES that you DO have encoders on the wheels,
- *   otherwise you would use: PushbotAutoDriveByTime;
- *
- *  This code ALSO requires that you have a Modern Robotics I2C gyro with the name "gyro"
- *   otherwise you would use: PushbotAutoDriveByEncoder;
- *
- *  This code requires that the drive Motors have been configured such that a positive
- *  power command moves them forward, and causes the encoders to count UP.
- *
- *  This code uses the RUN_TO_POSITION mode to enable the Motor controllers to generate the run profile
- *
- *  In order to calibrate the Gyro correctly, the robot must remain stationary during calibration.
- *  This is performed when the INIT button is pressed on the Driver Station.
- *  This code assumes that the robot is stationary when the INIT button is pressed.
- *  If this is not the case, then the INIT should be performed again.
- *
- *  Note: in this example, all angles are referenced to the initial coordinate frame set during the
- *  the Gyro Calibration process, or whenever the program issues a resetZAxisIntegrator() call on the Gyro.
- *
- *  The angle of movement/rotation is assumed to be a standardized rotation around the robot Z axis,
- *  which means that a Positive rotation is Counter Clock Wise, looking down on the field.
- *  This is consistent with the FTC field coordinate conventions set out in the document:
- *  ftc_app\doc\tutorial\FTC_FieldCoordinateSystemDefinition.pdf
- *
- * Use Android Studios to Copy this Class, and Paste it into your team's code folder with a new name.
- * Remove or comment out the @Disabled line to add this opmode to the Driver Station OpMode list
- */
+import java.util.List;
 
 @Autonomous(name="Pushbot: Auto Drive By Gyro", group="Pushbot")
 //@Disabled
 public class AutoGyroWy extends LinearOpMode {
 
-    // The IMU sensor object
-    BNO055IMU imu;
-
-    static final double     COUNTS_PER_MOTOR_REV    = 1440 ;    // eg: TETRIX Motor Encoder
-    static final double     DRIVE_GEAR_REDUCTION    = 2.0 ;     // This is < 1.0 if geared UP
-    static final double     WHEEL_DIAMETER_INCHES   = 4.0 ;     // For figuring circumference
-    static final double     COUNTS_PER_INCH         = (COUNTS_PER_MOTOR_REV * DRIVE_GEAR_REDUCTION) /
-                                                      (WHEEL_DIAMETER_INCHES * 3.1415);
-
-    final int readingPerRound = 4096;
-
-    // These constants define the desired driving/control characteristics
-    // The can/should be tweaked to suite the specific robot drive train.
-    static final double     DRIVE_SPEED             = 0.7;     // Nominal speed for better accuracy.
-    static final double     TURN_SPEED              = 0.5;     // Nominal half speed for better accuracy.
-
-    static final double     HEADING_THRESHOLD       = 1 ;      // As tight as we can make it with an integer gyro
-    static final double     P_TURN_COEFF            = 0.1;     // Larger is more responsive, but also less stable
-    static final double     P_DRIVE_COEFF           = 0.15;     // Larger is more responsive, but also less stable
-
+    //-------------------------------电机和传感器声明们--------------------------------------------
+    final ElapsedTime runtime = new ElapsedTime();
     private DcMotor LeftFront = null;
     private DcMotor LeftRear = null;
     private DcMotor RightFront = null;
     private DcMotor RightRear = null;
+    private DcMotor intake = null;
+    private DcMotor shooter = null;
+    private Servo intakeTrigger;
+    Servo trigger;
+    Servo elevatorLeft;
+    Servo elevatorRight;
+    Servo slope;
+    Servo triggerRoller;
 
-    double propotionAngle=0, integralAngle=0, differentiationAngle=0;
-    double propotionEncoder=0, integralEncoder=0, differentiationEncoder=0;
-    double lastAngleErr;
-    double lastEncoderErr;
-    double Kp=0.45,Ki=0.01,Kd=0.04;
-    double Kp_encoder=0.45, Ki_encoder=0.01, Kd_encoder=0.04;
-    double currentAngle = 0;
+    private DigitalChannel touchSensor0;
+    private DigitalChannel touchSensor1;
+    BNO055IMU imu;
+    //--------------------------------声明结束------------------------------------------------------
+
+    private static final String TFOD_MODEL_ASSET = "UltimateGoal.tflite";
+    private static final String LABEL_FIRST_ELEMENT = "Quad";
+    private static final String LABEL_SECOND_ELEMENT = "Single";
+    private static final String VUFORIA_KEY =
+            "AXx1c7T/////AAABmbPVD9EaVkFpuhQbYfj4x8CIvCZt0o7tF/ShBB0CReh7wngOy66mktwoIH/3qHhDGwSAEFgT20ZrmOgOShRWYb4jMrNv2M7617K/wMTA6M/WFKONhSS8T+6STFimWCGU6K9x4hvP+meU3i38E1+rCdif5h4tI6m9qL3J3wKG5Wb5CCTThSbbVNSbybtQCVj7lrthoXtVW3F1lye444fLhg7QrEx3QxZI+GCM355GnxuPAxHaFONrtnBKBsae0Nl20EN8MaMu72lM1uvo8kzonVyo1SMbgXBMFwvzhFJ2cnVXOaTW1sIIzsIqSJ8IcqE6qnmrV2O7dbaHspZh40PBaLp6Mu3MZgVjs2JI4e4sqNwV";
+    private VuforiaLocalizer vuforia;
+    private TFObjectDetector tfod;
 
     @Override
     public void runOpMode() {
-        /*
-         * Initialize the standard drive system variables.
-         * The init() method of the hardware class does most of the work here
-         */
+        initVuforia();
+        initTfod();
+        defInit();
 
-        //
-        LeftFront     = hardwareMap.get(DcMotor.class, "leftfront");
-        LeftRear      = hardwareMap.get(DcMotor.class, "leftrear");
-        RightFront    = hardwareMap.get(DcMotor.class, "rightfront");
-        RightRear     = hardwareMap.get(DcMotor.class, "rightrear");
+        if (tfod != null) {
+            tfod.activate();
 
-        //
-        LeftFront.setDirection(DcMotor.Direction.FORWARD);
-        LeftRear.setDirection(DcMotor.Direction.FORWARD);
-        RightFront.setDirection(DcMotor.Direction.REVERSE);
-        RightRear.setDirection(DcMotor.Direction.REVERSE);
-
-        LeftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        LeftRear.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        RightFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        RightRear.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-
-        // Send telemetry message to alert driver that we are calibrating;
-        telemetry.addData(">", "Calibrating Gyro");    //
-        telemetry.update();
-
-        BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
-        parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
-        parameters.accelUnit           = BNO055IMU.AccelUnit.METERS_PERSEC_PERSEC;
-        parameters.calibrationDataFile = "BNO055IMUCalibration.json"; // see the calibration sample opmode
-        parameters.loggingEnabled      = true;
-        parameters.loggingTag          = "IMU";
-        parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
-
-        // Retrieve and initialize the IMU. We expect the IMU to be attached to an I2C port
-        // on a Core Device Interface Module, configured to be a sensor of type "AdaFruit IMU",
-        // and named "imu".
-        imu = hardwareMap.get(BNO055IMU.class, "imu");
-
-
-        // make sure the gyro is calibrated before continuing
-        while (!isStopRequested() && imu.isGyroCalibrated())  {
-            sleep(50);
-            idle();
+            // The TensorFlow software will scale the input images from the camera to a lower resolution.
+            // This can result in lower detection accuracy at longer distances (> 55cm or 22").
+            // If your target is at distance greater than 50 cm (20") you can adjust the magnification value
+            // to artificially zoom in to the center of image.  For best results, the "aspectRatio" argument
+            // should be set to the value of the images used to create the TensorFlow Object Detection model
+            // (typically 16/9).
+            tfod.setZoom(2.5, 16.0/9.0);
         }
 
-        imu.initialize(parameters);
-
-        telemetry.addData(">", "Robot Ready.");    //
+        telemetry.addData(">", "Robot Ready.");
         telemetry.update();
 
-        LeftFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        LeftRear.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        RightFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        RightRear.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-
-        RightFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-        LeftFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         // Wait for the game to start (Display Gyro value), and reset gyro before we move..
         while (!isStarted()) {
-            //telemetry.addData(">", "Robot Heading = %d", imu.getAngularOrientation().thirdAngle);
             telemetry.update();
         }
+        final int perRound = 4096;
+        final double circumference = 3.8 * Math.PI;
+        final double encoder_per_cm = perRound / circumference;
 
-        encoderReset(RightFront);
-        encoderReset(LeftFront);
-        encoderReset(RightRear);
+        if (tfod != null) {
+            // getUpdatedRecognitions() will return null if no new information is available since
+            // the last time that call was made.
+            List<Recognition> updatedRecognitions = tfod.getUpdatedRecognitions();
+            if (updatedRecognitions != null) {
+                telemetry.addData("# Object Detected", updatedRecognitions.size());
+                // step through the list of recognitions and display boundary info.
+                int i = 0;
+                for (Recognition recognition : updatedRecognitions) {
+                    telemetry.addData(String.format("label (%d)", i), recognition.getLabel());
+                    telemetry.addData(String.format("  left,top (%d)", i), "%.03f , %.03f",
+                            recognition.getLeft(), recognition.getTop());
+                    telemetry.addData(String.format("  right,bottom (%d)", i), "%.03f , %.03f",
+                            recognition.getRight(), recognition.getBottom());
+                }
+                telemetry.update();
+            }
+        }
 
-        //moveForward(10*readingPerRound);
-        turnAngle(10);
-        //moveTrans(5*readingPerRound);
-        //moveForward(5*readingPerRound);
-//        while (RightRear.getCurrentPosition() < 5*readingPerRound)
-//        {
-//            forwardPower(0,gyroModifyPID(currentAngle));
-//        }
+        if (tfod != null) {
+            tfod.shutdown();
+        }
 
+        resetTrigger();
+        moveForward(100 * encoder_per_cm);
+        turnAngle(90);
+        moveTrans(50 * encoder_per_cm);
+        moveForward(50 * encoder_per_cm);
 
         telemetry.addData("Path", "Complete");
         telemetry.update();
     }
 
-    public double gyroModifyPID(double targetAngle) {
-        Orientation angle;
-        angle=imu.getAngularOrientation();
+    public void defInit(){
+        //定义imu
+        imu = hardwareMap.get(BNO055IMU.class, "imu");
+        BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
+        parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
+        parameters.accelUnit           = BNO055IMU.AccelUnit.METERS_PERSEC_PERSEC;
+        parameters.calibrationDataFile = "BNO055IMUCalibration.json";
+        parameters.loggingEnabled      = true;
+        parameters.loggingTag          = "IMU";
+        parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
+        //延时0.5秒，以确保imu正常工作
+        try {
+            Thread.sleep(500);//单位：毫秒
+        } catch (Exception e) {
+        }
 
-        propotionAngle=targetAngle-angle.firstAngle;
-        differentiationAngle=propotionAngle-lastAngleErr;
-        integralAngle += propotionAngle;
-        lastAngleErr = propotionAngle;
+        //定义电机
+        LeftFront     = hardwareMap.get(DcMotor.class, "leftfront");
+        LeftRear      = hardwareMap.get(DcMotor.class, "leftrear");
+        RightFront    = hardwareMap.get(DcMotor.class, "rightfront");
+        RightRear     = hardwareMap.get(DcMotor.class, "rightrear");
+        intake        = hardwareMap.get(DcMotor.class, "intake");
+        shooter       = hardwareMap.get(DcMotor.class, "shooter");
+        intakeTrigger = hardwareMap.get(Servo.class, "intaketrigger");
+        trigger       = hardwareMap.get(Servo.class, "trigger");
+        elevatorLeft  = hardwareMap.get(Servo.class, "elevatorleft");
+        elevatorRight = hardwareMap.get(Servo.class, "elevatorright");
+        slope         = hardwareMap.get(Servo.class, "slope");
+        triggerRoller = hardwareMap.get(Servo.class, "triggerroller");
+        touchSensor0 = hardwareMap.get(DigitalChannel.class, "touchsensor0");
+        touchSensor1 = hardwareMap.get(DigitalChannel.class, "touchsensor1");
 
-        return (Kp*propotionAngle+Ki*integralAngle+Kd*differentiationAngle)/15;
+        //设置方向
+        LeftFront.setDirection(DcMotor.Direction.FORWARD);
+        LeftRear.setDirection(DcMotor.Direction.FORWARD);
+        RightFront.setDirection(DcMotor.Direction.REVERSE);
+        RightRear.setDirection(DcMotor.Direction.REVERSE);
+        RightRear.setDirection(DcMotor.Direction.REVERSE);
+        intake.setDirection(DcMotor.Direction.REVERSE);
+        shooter.setDirection(DcMotor.Direction.FORWARD);
+        triggerRoller.setDirection(Servo.Direction.FORWARD);
+        LeftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        LeftRear.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        RightFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        RightRear.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        touchSensor0.setMode(DigitalChannel.Mode.INPUT);
+        touchSensor1.setMode(DigitalChannel.Mode.INPUT);
+        //----------------------------编码器初始化---------------------------------------------------
+        RightFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        RightFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        LeftFront.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        LeftFront.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        RightRear.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        RightRear.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        LeftRear.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        //------------------------------------------------------------------------------------------
+
+        imu.initialize(parameters);
+        //延时0.5秒，以确保imu正常工作
+        try {
+            Thread.sleep(500);//单位：毫秒
+        } catch (Exception e) {
+        }
     }
 
+    /**
+     * *****************          gyroModifyPID           ************************
+     *
+     * 功能描述：根据目标角，返回速度修正。
+     *          修正后的效果为：车头指向角度targetAngle。
+     * 使用方法：1. 将右边电机速度加上修正值，左边减去修正值。
+     *          2. 调整targetAngle可以实现转向。
+     * ***************************************************************************
+     * */
+    double targetAngle = 0;
+    double proportionAngle = 0,integralAngle = 0,differentiationAngle = 0;//pid变量
+    double lastAngleErr;
+    public double gyroModifyPID(double targetAngle) {
+        final double Kp = 0.45, Ki = 0.0, Kd = 0.04;//pid参数
+        Orientation angle;
+        angle =imu.getAngularOrientation();
+        proportionAngle=targetAngle-angle.firstAngle;//计算角度误差，作为比例误差
+        differentiationAngle=proportionAngle-lastAngleErr;//微分
+        integralAngle=integralAngle+proportionAngle;//积分
+        lastAngleErr=proportionAngle;
+        telemetry.addData("angle","%.3f",angle.firstAngle);
+        return (Kp*proportionAngle+Ki*integralAngle+Kd*differentiationAngle) / 15;
+    }
+
+    double proportionEncoder=0, integralEncoder=0, differentiationEncoder=0;
+    double lastEncoderErr;
     public double encoderModifyPID(int left, int right){
+        final double Kp = 0.45, Ki = 0.01, Kd = 0.04;
         double modify;
-        propotionEncoder=(left-right)/(left+right);
-        differentiationEncoder = propotionEncoder - lastEncoderErr;
-        integralEncoder += propotionEncoder;
-        lastEncoderErr = propotionEncoder;
-        modify = Kp_encoder*propotionEncoder + Ki_encoder*integralEncoder + Kd_encoder*differentiationEncoder;
+        proportionEncoder=(left-right)/(left+right);
+        differentiationEncoder = proportionEncoder - lastEncoderErr;
+        integralEncoder += proportionEncoder;
+        lastEncoderErr = proportionEncoder;
+        modify = Kp*proportionEncoder + Ki*integralEncoder + Kd*differentiationEncoder;
         return modify;
     }
 
-    public void moveForward(int targetPosition){
+    public void intakeForTime(int time){
+        intake.setPower(1);
+        try {
+            Thread.sleep(time);//单位：毫秒
+        } catch (Exception e) {
+        }
+        intake.setPower(0);
+    }
+
+    final double TRI_RUN = 0.9;
+    final double TRI_STOP =0.5;
+    public void shootForTimes(int times){
+        elevatorOperation(elevatorState.UP);
+        int shootCount = 0;
+        while (shootCount < times){
+            trigger.setPosition(TRI_RUN);
+            if (touchSensor0.getState())
+                shootCount++;
+        }
+        trigger.setPosition(TRI_STOP);
+        elevatorOperation(elevatorState.DOWN);
+    }
+
+    public void resetTrigger(){
+        elevatorOperation(elevatorState.UP);
+        while (true) {
+            if (touchSensor1.getState())
+                trigger.setPosition(TRI_RUN);
+            if (touchSensor0.getState()) {
+                trigger.setPosition(TRI_STOP);
+                elevatorOperation(elevatorState.DOWN);
+                break;
+            }
+        }
+    }
+
+    enum elevatorState{
+        UP, DOWN;
+    }
+    public void elevatorOperation(elevatorState state){
+        final double MAX_POS_left     =  0.65;
+        final double MAX_POS_right    =  0.33;
+        final double MIN_POS_left     =  0.33;
+        final double MIN_POS_right     =  0.6;
+        if(state == elevatorState.UP){
+            elevatorLeft.setPosition(MAX_POS_left);
+            elevatorRight.setPosition(MAX_POS_right);
+        }
+        if (state == elevatorState.DOWN){
+            elevatorLeft.setPosition(MIN_POS_left);
+            elevatorRight.setPosition(MIN_POS_right);
+        }
+
+    }
+
+    public void moveForward(double targetPosition){
         int leftEncoder = 0, rightEncoder = 0;
-        double speedModify = 0;
+        double speedModify = gyroModifyPID(targetAngle);
         final double speed = 0.2;
         forwardPower(speed,speedModify);
         while ( ((leftEncoder+rightEncoder)/2) < targetPosition)
@@ -233,7 +314,7 @@ public class AutoGyroWy extends LinearOpMode {
             leftEncoder = -LeftFront.getCurrentPosition()-1;
             rightEncoder = -RightFront.getCurrentPosition()-1;
             //speedModify = encoderModifyPID(leftEncoder, rightEncoder);//编码器pid
-            speedModify =0;// gyroModifyPID(targetAngle);//陀螺仪pid
+            speedModify = gyroModifyPID(targetAngle);//陀螺仪pid
             forwardPower(speed,speedModify);
         }
         forwardPower(0,0);
@@ -241,25 +322,25 @@ public class AutoGyroWy extends LinearOpMode {
         encoderReset(LeftFront);
     }
 
-    public void moveTrans(int targetPosition){
+    public void moveTrans(double targetPosition){
         int midEncoder = 0;
-        double speedModify = 0;
+        double speedModify = gyroModifyPID(targetAngle);
         final double speed = 0.8;
-        transPower(speed,speedModify);
+        transPower(speed, speedModify);
         while (midEncoder < targetPosition){
             midEncoder = RightRear.getCurrentPosition();
-            speedModify = gyroModifyPID(currentAngle);
-            transPower(speed,speedModify);
+            speedModify = gyroModifyPID(targetAngle);
+            transPower(speed, speedModify);
         }
         transPower(0,0);
+        encoderReset(RightRear);
     }
 
     public void turnAngle(double angle){
         double speedModify;
-        currentAngle = angle;
+        targetAngle = angle;
         speedModify = gyroModifyPID(angle);
-        //while ( (speedModify > 0.1) || (speedModify < -0.1) ){
-        while (imu.getAngularOrientation().firstAngle != angle){
+        while ( Math.abs(speedModify) > 0.1 ){
             forwardPower(0,speedModify);
         }
     }
@@ -282,4 +363,35 @@ public class AutoGyroWy extends LinearOpMode {
         mo.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         mo.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
     }
+
+    /**
+     * Initialize the Vuforia localization engine.
+     */
+    private void initVuforia() {
+        /*
+         * Configure Vuforia by creating a Parameter object, and passing it to the Vuforia engine.
+         */
+        VuforiaLocalizer.Parameters parameters = new VuforiaLocalizer.Parameters();
+
+        parameters.vuforiaLicenseKey = VUFORIA_KEY;
+        parameters.cameraName = hardwareMap.get(WebcamName.class, "Webcam 1");
+
+        //  Instantiate the Vuforia engine
+        vuforia = ClassFactory.getInstance().createVuforia(parameters);
+
+        // Loading trackables is not necessary for the TensorFlow Object Detection engine.
+    }
+
+    /**
+     * Initialize the TensorFlow Object Detection engine.
+     */
+    private void initTfod() {
+        int tfodMonitorViewId = hardwareMap.appContext.getResources().getIdentifier(
+                "tfodMonitorViewId", "id", hardwareMap.appContext.getPackageName());
+        TFObjectDetector.Parameters tfodParameters = new TFObjectDetector.Parameters(tfodMonitorViewId);
+        tfodParameters.minResultConfidence = 0.8f;
+        tfod = ClassFactory.getInstance().createTFObjectDetector(tfodParameters, vuforia);
+        tfod.loadModelFromAsset(TFOD_MODEL_ASSET, LABEL_FIRST_ELEMENT, LABEL_SECOND_ELEMENT);
+    }
+
 }
