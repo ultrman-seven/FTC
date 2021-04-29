@@ -79,10 +79,6 @@ public class manual_Iterative_Wy extends OpMode
     double targetAngle = 0;
     double angleOfSlope = 0;
 
-    boolean elevatorFlag = false;//电梯位置标志
-    boolean triggerFlag = false;//
-    boolean lbFlag = false,rbFlag = false;//左右bumper是否按下标志
-    boolean aimFlag = false;
     /*
      * Code to run ONCE when the driver hits INIT
      */
@@ -105,7 +101,7 @@ public class manual_Iterative_Wy extends OpMode
         parameters.loggingEnabled      = true;
         parameters.loggingTag          = "IMU";
         parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
-
+        //延时0.5秒，以确保imu正常工作
         try {
             Thread.sleep(500);//单位：毫秒
         } catch (Exception e) {
@@ -153,10 +149,8 @@ public class manual_Iterative_Wy extends OpMode
         LeftRear.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         //------------------------------------------------------------------------------------------
 
-        //等待响应
-        //while (!imu.isGyroCalibrated());
-        //imu初始化
         imu.initialize(parameters);
+        //延时0.5秒，以确保imu正常工作
         try {
             Thread.sleep(500);//单位：毫秒
         } catch (Exception e) {
@@ -185,64 +179,257 @@ public class manual_Iterative_Wy extends OpMode
     @Override
 
     public void loop() {
-        positionUpdate();
-        //testSlope(30);
+        positionUpdate();//实时坐标位置数据更新
+        angleControl();//角度调整
 
-        //---------------------------获取部分按键值---------------------------------------------------
-        float x, y;
-        float intakePower;
-        y            = -gamepad1.left_stick_y ;
-        x            = gamepad1.right_stick_x ;
-        intakePower  = gamepad2.left_stick_y;
-        //------------------------------获取结束-----------------------------------------------------
-
-//****************************************设定pid修正的目标角,进行角度调整*****************************************
-        //------------大调,按下lt和rt进行旋转，调整‘angleIncreaseCoefficient’以改变其速度---------------
-        final double angleIncreaseCoefficient = 3.5;
-        if (targetAngle < 160)
-            targetAngle += angleIncreaseCoefficient * gamepad1.left_trigger;
-
-        if (targetAngle> -160)
-            targetAngle -= angleIncreaseCoefficient * gamepad1.right_trigger;
-        //----------------------小调,按lb和rb进行角度微调，按一下调5度。-------------------------------
-        if (gamepad1.left_bumper) {
-            if(!lbFlag){
-                lbFlag = true;
-                targetAngle += (targetAngle < 160) ? 5 : 0;
-            }
-        }
-        else
-            lbFlag = false;
-        if (gamepad1.right_bumper){
-            if(!rbFlag){
-                rbFlag = true;
-                targetAngle -= (targetAngle> -160) ? 5 : 0;
-            }
-        }
-        else
-            rbFlag = false;
-        //------------------------------调整至绝对角度：0°-------------------------------------------
-        if (gamepad1.b)
-            targetAngle = 0;
-//*****************************************角度调整结束**************************************************************
-
-        //-----------------------------------pid获取修正速度--------------------------------------
-        double speedModify;//pid修正速度
-        speedModify = gyroModifyPID(targetAngle);
-        //-------------------------------------修正结束-------------------------------------------
-
-        //---------------------------------设定轮子速度----------------------------------------------
+        double speedModify = gyroModifyPID(targetAngle);//获取pid修正速度
+        //------------------------------手柄设定轮子速度---------------------------------------------
+        float y = -gamepad1.left_stick_y;
+        float x = gamepad1.right_stick_x;
+        //设定轮子速度
         LeftFront.setPower(y + x- speedModify);
         LeftRear.setPower(y - x - speedModify);
         RightFront.setPower(y - x + speedModify);
         RightRear.setPower(y + x + speedModify);
-        intake.setPower(intakePower);
+        intake.setPower(gamepad2.left_stick_y);
         //---------------------------------速度设定结束----------------------------------------------
 
-//************************************发射相关操作********************************************************************
+        shootOperation();//发射相关操作
+
+        // Show the elapsed game time and wheel power.
+        telemetry.addData("Status", "Run Time: " + runtime.toString());
+        telemetry.update();
+    }
+
+    /**
+     * *****************************************************************************************
+     * *************************                      *******************************************
+     * **********            以下为定义的函数(方法)             ************************************
+     * **************************                      ********************************************
+     * *********************************************************************************************
+     * */
+
+    /**
+     * *****************          gyroModifyPID           ************************
+     * 
+     * 功能描述：根据目标角，返回速度修正。
+     *          修正后的效果为：车头指向角度targetAngle。
+     * 使用方法：1. 将右边电机速度加上修正值，左边减去修正值。
+     *          2. 调整targetAngle可以实现转向。
+     * ***************************************************************************
+    * */
+    double proportionAngle = 0,integralAngle = 0,differentiationAngle = 0;//pid变量
+    double lastAngleErr;
+    double Kp = 0.45,Ki = 0.0,Kd = 0.04;//pid参数
+    public double gyroModifyPID(double targetAngle) {
+        Orientation angle;
+        angle =imu.getAngularOrientation();
+        proportionAngle=targetAngle-angle.firstAngle;//计算角度误差，作为比例误差
+        differentiationAngle=proportionAngle-lastAngleErr;//微分
+        integralAngle=integralAngle+proportionAngle;//积分
+        lastAngleErr=proportionAngle;
+        telemetry.addData("angle","%.3f",angle.firstAngle);
+        return (Kp*proportionAngle+Ki*integralAngle+Kd*differentiationAngle) / 15;
+    }
+
+    /**
+     * **********************         positionUpdate             **********************
+     * 
+     * 功能描述：根据编码器和陀螺仪的值，更新当前坐标，并输出到屏幕
+     *          以赛场左下角为原点，向右为x正方向，向前为y正方向
+     * 使用方法：使用方法: 直接放进loop中
+     * ********************************************************************************
+     * */
+    //编码器参数
+    final int perRound = 4096;
+    final double diameter = 3.8;
+    final double circumference = diameter * Math.PI;
+    final double initX = 26.5, initY = 31;
+    double position_x = initX * perRound / circumference,
+            position_y = initY * perRound / circumference;
+    int lastSideEncoder = 0, lastMidEncoder = 0;
+    public void positionUpdate(){
+        if(gamepad1.x) {
+            init();
+        }
+        //获取编码器和陀螺仪值
+        int sideEncoder = (RightFront.getCurrentPosition() + LeftFront.getCurrentPosition())/2;
+        int midEncoder = RightRear.getCurrentPosition();
+        double angle = imu.getAngularOrientation().firstAngle;
+
+        double deltaSide =( sideEncoder - lastSideEncoder);
+        double deltaMid = (midEncoder - lastMidEncoder);
+        double sinA = Math.sin(Math.toRadians(angle));
+        double cosA = Math.cos(Math.toRadians(angle));
+
+        position_x += deltaSide * sinA;
+        position_x += deltaMid * cosA;
+        position_y -= deltaSide * cosA;
+        position_y += deltaMid * sinA;
+
+        lastMidEncoder = midEncoder;
+        lastSideEncoder = sideEncoder;
+        telemetry.addData("position(cm)","x:%.2f ,y:%.2f",
+                position_x / perRound * circumference,position_y / perRound * circumference);
+    }
+
+    /**
+     * ************************      autoAim       ************************************
+     * 
+     * 功能描述：自动瞄准，并调整斜坡位置
+     *          根据当前车子坐标和目标位置的坐标，调整targetAngle进行瞄准
+     *          调用slopeModify进行斜坡调整
+     * 使用方法：直接调用, 参数为枚举对象TargetObject
+     * 函数关系式:
+     *          *
+     * 注意: 1. 瞄准只改变targetAngle,没转向,所以要等转向完毕后再按发射键
+     *      2. 为避免重复运算,按下瞄准键后只进行一次调用
+     *      3. 目标位置的坐标值单位是厘米(cm)
+     *      4. 传给slopeModify的参数的单位是米(m)
+     * *******************************************************************************
+     * */
+    enum TargetObject {
+        BASKET, FIR_POLE, SEC_POLE, THI_POLE;
+    }
+    public double autoAim(TargetObject select){
+        final double shootAngleModify =
+                Math.toDegrees(Math.acos( 0.994337680164722 ));
+        //首先计算当前位置与目标坐标连线的和y轴正方向(陀螺仪0°角)夹角,并设定
+        final double BASKET_X = 91.44, BASKET_Y = 365.76;
+        final double FIR_POLE_X = 10.795, FIR_POLE_Y = 365.76;
+        final double SEC_POLE_X = 31.115, SEC_POLE_Y = 365.76;
+        final double THI_POLE_X = 51.435, THI_POLE_Y = 365.76;
+        double x, y;
+        switch (select) {
+            case BASKET:
+                x = BASKET_X;
+                y = BASKET_Y;
+                break;
+            case FIR_POLE:
+                x = FIR_POLE_X;
+                y = FIR_POLE_Y;
+                break;
+            case SEC_POLE:
+                x = SEC_POLE_X;
+                y = SEC_POLE_Y;
+                break;
+            case THI_POLE:
+                x = THI_POLE_X;
+                y = THI_POLE_Y;
+                break;
+            default:
+                x = y = 1;
+                break;
+        }
+        double relative_x = x - position_x / perRound * circumference;
+        double relative_y = y - position_y / perRound * circumference;
+        targetAngle = -Math.toDegrees(Math.atan(relative_x/relative_y)) - shootAngleModify;
+        //斜坡(发射角度)调整
+        double distance = Math.sqrt(relative_x*relative_x + relative_y*relative_y);
+        return slopeModify(distance / 100, select);
+    }
+
+    /**
+     * ************************         slopeModify       ****************************
+     * 
+     * 功能描述：根据离篮筐的距离，计算所需的发射角度，调整slope角度。
+     * 使用方法：直接调用,参数为距离。
+     * 2021-4-27参数测定:
+     *                  初始角18°
+     *                  0.6 - 18
+     *                  0.7 - 26
+     *                  0.8 - 34
+     *                  position = - 0.1 / 8 * angle + 0.825
+     *注意事项: 1. 为了使表达式简单,本函数使用单位米(m)
+     * ******************************************************************************
+     * */
+    public double slopeModify(double distance,TargetObject select){
+        final double carHeight = 0.24;//车高
+        final double poleHeight = 0.78184375;
+        final double basketHeight = 0.996375;//篮筐高度
+        final double g_v2 = 0.0168328914699322;//   重力/(发射速度的平方)
+        final double angleToPosition = -0.0135, compensate = 0.825;//角度转换成舵机位置的线性关系系数
+        //计算斜坡需要的角度
+        double H;
+        switch (select){
+            case BASKET:
+                H = basketHeight;
+                break;
+            default:
+                H = poleHeight;
+                break;
+        }
+        double slopeAngle, calculateAssistAngle;
+        calculateAssistAngle = Math.atan((carHeight-H)/distance);
+        slopeAngle = (distance*distance*g_v2 + H - carHeight)
+                / Math.sqrt(distance*distance + (H-carHeight)*(H-carHeight));
+        slopeAngle = Math.asin(slopeAngle) - calculateAssistAngle;
+        slopeAngle = Math.toDegrees(slopeAngle / 2);
+
+        slope.setPosition(slopeAngle * angleToPosition + compensate);
+        telemetry.addData("s position","%.3f",slopeAngle * angleToPosition + compensate);
+        return slopeAngle;
+    }
+
+    /**
+     * ************************          angleControl       *************************
+     * 
+     * 功能描述: 设定pid修正的目标角,进行角度调整
+     *          按下lt和rt，大调
+     *          按下lb和rb，小调，按一次调5°
+     * 注意事项: 
+     *          角度旋转会略有延迟,并且手感不是线性的
+     *          原因: 旋转实际上是调整pid的目标角, 并没有直接使用轮子进行旋转操作,
+     *          而是使用pid将其修正到设定位置上
+     * 使用方法: 直接放进loop中
+     * ******************************************************************************
+     */
+    boolean lbFlag = false,rbFlag = false;//左右bumper是否按下标志，以确保每次按下之后只调整一次角度
+    public void angleControl(){
+                //------------大调,按下lt和rt进行旋转，调整‘angleIncreaseCoefficient’以改变其速度---------------
+                final double angleIncreaseCoefficient = 3.5;
+                if (targetAngle < 160)
+                    targetAngle += angleIncreaseCoefficient * gamepad1.left_trigger;
+        
+                if (targetAngle> -160)
+                    targetAngle -= angleIncreaseCoefficient * gamepad1.right_trigger;
+                //----------------------小调,按lb和rb进行角度微调，按一下调5度。-------------------------------
+                if (gamepad1.left_bumper) {
+                    if(!lbFlag){
+                        lbFlag = true;
+                        targetAngle += (targetAngle < 160) ? 5 : 0;
+                    }
+                }
+                else
+                    lbFlag = false;
+                if (gamepad1.right_bumper){
+                    if(!rbFlag){
+                        rbFlag = true;
+                        targetAngle -= (targetAngle> -160) ? 5 : 0;
+                    }
+                }
+                else
+                    rbFlag = false;
+                //------------------------------调整至绝对角度：0°-------------------------------------------
+                if (gamepad1.b)
+                    targetAngle = 0;
+    }
+
+    /**
+     * *************************          shootOperation       **************************************
+     * 功能描述: 发射相关操作, 包括:
+     *          1. 自动瞄准: 按up瞄篮筐; 按left\down\right分别瞄第一\二\三个杆
+     *          2. 如果开始时trigger没有顶到底,会自动复位
+     *          3. 电梯升起\电梯降下\发射(只有在电梯升起时才会发射)
+     * 使用方法: 直接放进loop中
+     */
+    boolean elevatorFlag = false;//电梯位置标志
+    boolean triggerFlag = false;//是否复位标志
+    boolean aimFlag = false;//是否按下瞄准键标志
+    public void shootOperation(){
         //------------------------------电梯参数-----------------------------------------------------
         final double MAX_POS_left     =  0.65;
-        final double MAX_POS_right     =  0.33;
+        final double MAX_POS_right    =  0.33;
         final double MIN_POS_left     =  0.33;
         final double MIN_POS_right     =  0.6;
         //-----------------------------发射推杆参数--------------------------------------------------
@@ -323,189 +510,6 @@ public class manual_Iterative_Wy extends OpMode
                 elevatorFlag = false;
             }
         }
-//***************************************发射结束*********************************************************************
-
-        // Show the elapsed game time and wheel power.
-        telemetry.addData("Status", "Run Time: " + runtime.toString());
-        telemetry.update();
-    }
-
-    /**
-     * *****************************************************************************************
-     * *************************                      *******************************************
-     * **********            以下为定义的函数(方法)             ************************************
-     * **************************                      ********************************************
-     * *********************************************************************************************
-     * */
-
-    /**
-     * **************************gyroModifyPID***********************************
-     * 功能描述：根据目标角，返回速度修正。
-     *          修正后的效果为：车头指向角度targetAngle。
-     * 使用方法：1. 将右边电机速度加上修正值，左边减去修正值。
-     *          2. 调整targetAngle可以实现转向。
-     * ***************************************************************************
-    * */
-    double proportionAngle = 0,integralAngle = 0,differentiationAngle = 0;//pid变量
-    double lastAngleErr;
-    double Kp = 0.45,Ki = 0.0,Kd = 0.04;//pid参数
-    public double gyroModifyPID(double targetAngle) {
-        Orientation angle;
-        angle =imu.getAngularOrientation();
-        proportionAngle=targetAngle-angle.firstAngle;//计算角度误差，作为比例误差
-        differentiationAngle=proportionAngle-lastAngleErr;//微分
-        integralAngle=integralAngle+proportionAngle;//积分
-        lastAngleErr=proportionAngle;
-        telemetry.addData("angle","%.3f",angle.firstAngle);
-        return (Kp*proportionAngle+Ki*integralAngle+Kd*differentiationAngle) / 15;
-    }
-
-    /**
-     * ********************************positionUpdate**********************************
-     * 功能描述：根据编码器和陀螺仪的值，更新当前坐标，并输出到屏幕
-     *          以赛场左下角为原点，向右为x正方向，向前为y正方向
-     * 使用方法：直接调用
-     * ********************************************************************************
-     * */
-    //编码器参数
-    final int perRound = 4096;
-    final double diameter = 3.8;
-    final double circumference = diameter * Math.PI;
-    final double initX = 26.5, initY = 31;
-    double position_x = initX * perRound / circumference,
-            position_y = initY * perRound / circumference;
-    int lastSideEncoder = 0, lastMidEncoder = 0;
-    public void positionUpdate(){
-        if(gamepad1.x) {
-            init();
-        }
-        //获取编码器和陀螺仪值
-        int sideEncoder = (RightFront.getCurrentPosition() + LeftFront.getCurrentPosition())/2;
-        int midEncoder = RightRear.getCurrentPosition();
-        double angle = imu.getAngularOrientation().firstAngle;
-
-        double deltaSide =( sideEncoder - lastSideEncoder);
-        double deltaMid = (midEncoder - lastMidEncoder);
-        double sinA = Math.sin(Math.toRadians(angle));
-        double cosA = Math.cos(Math.toRadians(angle));
-
-        position_x += deltaSide * sinA;
-        position_x += deltaMid * cosA;
-        position_y -= deltaSide * cosA;
-        position_y += deltaMid * sinA;
-
-        lastMidEncoder = midEncoder;
-        lastSideEncoder = sideEncoder;
-        telemetry.addData("position(cm)","x:%.2f ,y:%.2f",
-                position_x / perRound * circumference,position_y / perRound * circumference);
-    }
-
-    /**
-     * *****************************autoAim******************************************
-     * 功能描述：自动瞄准，并调整斜坡位置
-     *          根据当前车子坐标和目标位置的坐标，调整targetAngle进行瞄准
-     *          调用slopeModify进行斜坡调整
-     * 使用方法：直接调用, 参数为枚举对象TargetObject
-     * 函数关系式:
-     *          *
-     * 注意: 1. 瞄准只改变targetAngle,没转向,所以要等转向完毕后再按发射键
-     *      2. 为避免重复运算,按下瞄准键后只进行一次调用
-     *      3. 目标位置的坐标值单位是厘米(cm)
-     *      4. 传给slopeModify的参数的单位是米(m)
-     * *******************************************************************************
-     * */
-    enum TargetObject {
-        BASKET, FIR_POLE, SEC_POLE, THI_POLE;
-    }
-    public double autoAim(TargetObject select){
-        final double shootAngleModify =
-                Math.toDegrees(Math.acos( 0.994337680164722 ));
-        //首先计算当前位置与目标坐标连线的和y轴正方向(陀螺仪0°角)夹角,并设定
-        final double BASKET_X = 91.44, BASKET_Y = 365.76;
-        final double FIR_POLE_X = 10.795, FIR_POLE_Y = 365.76;
-        final double SEC_POLE_X = 31.115, SEC_POLE_Y = 365.76;
-        final double THI_POLE_X = 51.435, THI_POLE_Y = 365.76;
-        double x, y;
-        switch (select) {
-            case BASKET:
-                x = BASKET_X;
-                y = BASKET_Y;
-                break;
-            case FIR_POLE:
-                x = FIR_POLE_X;
-                y = FIR_POLE_Y;
-                break;
-            case SEC_POLE:
-                x = SEC_POLE_X;
-                y = SEC_POLE_Y;
-                break;
-            case THI_POLE:
-                x = THI_POLE_X;
-                y = THI_POLE_Y;
-                break;
-            default:
-                x = y = 1;
-                break;
-        }
-        double relative_x = x - position_x / perRound * circumference;
-        double relative_y = y - position_y / perRound * circumference;
-        targetAngle = -Math.toDegrees(Math.atan(relative_x/relative_y)) - shootAngleModify;
-        //斜坡(发射角度)调整
-        double distance = Math.sqrt(relative_x*relative_x + relative_y*relative_y);
-        return slopeModify(distance / 100, select);
-    }
-
-    /**
-     * *******************************slopeModify************************************
-     * 功能描述：根据离篮筐的距离，计算所需的发射角度，调整slope角度。
-     * 使用方法：直接调用,参数为距离。
-     * 2021-4-27参数测定:
-     *                  初始角18°
-     *                  0.6 - 18
-     *                  0.7 - 26
-     *                  0.8 - 34
-     *                  position = - 0.1 / 8 * angle + 0.825
-     *注意事项: 1. 为了使表达式简单,本函数使用单位米(m)
-     * ******************************************************************************
-     * */
-
-    public double slopeModify(double distance,TargetObject select){
-        final double carHeight = 0.24;//车高
-        final double poleHeight = 0.78184375;
-        final double basketHeight = 0.996375;//篮筐高度
-        final double g_v2 = 0.0168328914699322;//   重力/(发射速度的平方)
-        final double angleToPosition = -0.0135, compensate = 0.825;//角度转换成舵机位置的线性关系系数
-        //计算斜坡需要的角度
-        double H;
-        switch (select){
-            case BASKET:
-                H = basketHeight;
-                break;
-            default:
-                H = poleHeight;
-                break;
-        }
-        double slopeAngle, calculateAssistAngle;
-        calculateAssistAngle = Math.atan((carHeight-H)/distance);
-        slopeAngle = (distance*distance*g_v2 + H - carHeight)
-                / Math.sqrt(distance*distance + (H-carHeight)*(H-carHeight));
-        slopeAngle = Math.asin(slopeAngle) - calculateAssistAngle;
-        slopeAngle = Math.toDegrees(slopeAngle / 2);
-
-        slope.setPosition(slopeAngle * angleToPosition + compensate);
-        telemetry.addData("s position","%.3f",slopeAngle * angleToPosition + compensate);
-        return slopeAngle;
-    }
-
-    /**
-     * ********************************临时函数readEncoder*******************************************
-     * 功能描述: 读取三个轮子的编码器的值,并显示在屏幕上
-     * *********************************************************************************************
-     * */
-    public void readEncoder(){
-        telemetry.addData("left encoder","%d",LeftFront.getCurrentPosition());
-        telemetry.addData("right encoder","%d",RightFront.getCurrentPosition());
-        telemetry.addData("mid encoder","%d",RightRear.getCurrentPosition());
     }
 
     /**
@@ -546,29 +550,6 @@ public class manual_Iterative_Wy extends OpMode
         telemetry.addData("a","%.4f",a);
         telemetry.addData("b","%.4f",b);
     }
-
-    public void imuInit(){
-        imu = hardwareMap.get(BNO055IMU.class, "imu");
-        BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
-        parameters.angleUnit           = BNO055IMU.AngleUnit.DEGREES;
-        parameters.accelUnit           = BNO055IMU.AccelUnit.METERS_PERSEC_PERSEC;
-        parameters.calibrationDataFile = "BNO055IMUCalibration.json";
-        parameters.loggingEnabled      = true;
-        parameters.loggingTag          = "IMU";
-        parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
-        while (!imu.isGyroCalibrated()) {
-            try {
-                Thread.sleep(1000);//单位：毫秒
-            } catch (Exception e) {
-            }
-        }
-        imu.initialize(parameters);
-        try {
-            Thread.sleep(1000);//单位：毫秒
-        } catch (Exception e) {
-        }
-    }
-
 
     //按下停止
     @Override
