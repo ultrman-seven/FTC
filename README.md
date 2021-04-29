@@ -9,6 +9,7 @@ FTC
 # 程序文件说明
 1. 自动部分
     AutoGyroWy.java
+    **现在自动部分不归wy管,不好用与wy无关**
 
 2. 手动部分
     manual_Iterative_Wy.java
