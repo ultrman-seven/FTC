@@ -35,6 +35,7 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DigitalChannel;
 import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.TouchSensor;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
 
@@ -70,9 +71,13 @@ public class manual_Iterative_Wy extends OpMode
     Servo elevatorRight;
     Servo slope;
     Servo triggerRoller;
+    Servo clamp;
+    DcMotor arm;
 
     private DigitalChannel touchSensor0;
     private DigitalChannel touchSensor1;
+    private TouchSensor touchBehind;
+    private TouchSensor touchUpon;
     BNO055IMU imu;
     //--------------------------------声明结束------------------------------------------------------
 
@@ -120,8 +125,12 @@ public class manual_Iterative_Wy extends OpMode
         elevatorRight = hardwareMap.get(Servo.class, "elevatorright");
         slope         = hardwareMap.get(Servo.class, "slope");
         triggerRoller = hardwareMap.get(Servo.class, "triggerroller");
+        clamp         = hardwareMap.get(Servo.class,"clamp");
+        arm       = hardwareMap.get(DcMotor.class,"arm");
         touchSensor0 = hardwareMap.get(DigitalChannel.class, "touchsensor0");
         touchSensor1 = hardwareMap.get(DigitalChannel.class, "touchsensor1");
+        touchBehind = hardwareMap.get(TouchSensor.class,"touchBehind");
+        touchUpon = hardwareMap.get(TouchSensor.class,"touchUpon");
 
         //设置方向
         LeftFront.setDirection(DcMotor.Direction.FORWARD);
@@ -132,6 +141,7 @@ public class manual_Iterative_Wy extends OpMode
         intake.setDirection(DcMotor.Direction.REVERSE);
         shooter.setDirection(DcMotor.Direction.FORWARD);
         triggerRoller.setDirection(Servo.Direction.FORWARD);
+        clamp.setDirection(Servo.Direction.FORWARD);
         LeftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         LeftRear.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         RightFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -179,6 +189,9 @@ public class manual_Iterative_Wy extends OpMode
     @Override
 
     public void loop() {
+        clamp.setPosition(0.5);
+        armControl();
+        testClamp();
         positionUpdate();//实时坐标位置数据更新
         angleControl();//角度调整
 
@@ -200,14 +213,6 @@ public class manual_Iterative_Wy extends OpMode
         telemetry.addData("Status", "Run Time: " + runtime.toString());
         telemetry.update();
     }
-
-    /**
-     * *****************************************************************************************
-     * *************************                      *******************************************
-     * **********            以下为定义的函数(方法)             ************************************
-     * **************************                      ********************************************
-     * *********************************************************************************************
-     * */
 
     /**
      * *****************          gyroModifyPID           ************************
@@ -288,45 +293,29 @@ public class manual_Iterative_Wy extends OpMode
      *      4. 传给slopeModify的参数的单位是米(m)
      * *******************************************************************************
      * */
-    enum TargetObject {
-        BASKET, FIR_POLE, SEC_POLE, THI_POLE;
+    public class TargetObject{
+        double x, y, height;
+        public TargetObject(double co_x, double co_y, double co_z){
+            this.x = co_x;
+            this.y = co_y;
+            this.height = co_z;
+        }
     }
-    public double autoAim(TargetObject select){
+    TargetObject basket = new TargetObject(91.44,365.76, 0.996375);
+    TargetObject firstPole = new TargetObject(10.795,365.76, 0.78184375);
+    TargetObject secondPole = new TargetObject(31.115,365.76, 0.78184375);
+    TargetObject thirdPole = new TargetObject(51.435,365.76, 0.78184375);
+    public double autoAim(TargetObject target){
         final double shootAngleModify =
                 Math.toDegrees(Math.acos( 0.994337680164722 ));
         //首先计算当前位置与目标坐标连线的和y轴正方向(陀螺仪0°角)夹角,并设定
-        final double BASKET_X = 91.44, BASKET_Y = 365.76;
-        final double FIR_POLE_X = 10.795, FIR_POLE_Y = 365.76;
-        final double SEC_POLE_X = 31.115, SEC_POLE_Y = 365.76;
-        final double THI_POLE_X = 51.435, THI_POLE_Y = 365.76;
-        double x, y;
-        switch (select) {
-            case BASKET:
-                x = BASKET_X;
-                y = BASKET_Y;
-                break;
-            case FIR_POLE:
-                x = FIR_POLE_X;
-                y = FIR_POLE_Y;
-                break;
-            case SEC_POLE:
-                x = SEC_POLE_X;
-                y = SEC_POLE_Y;
-                break;
-            case THI_POLE:
-                x = THI_POLE_X;
-                y = THI_POLE_Y;
-                break;
-            default:
-                x = y = 1;
-                break;
-        }
-        double relative_x = x - position_x / perRound * circumference;
-        double relative_y = y - position_y / perRound * circumference;
+
+        double relative_x = target.x - position_x / perRound * circumference;
+        double relative_y = target.y - position_y / perRound * circumference;
         targetAngle = -Math.toDegrees(Math.atan(relative_x/relative_y)) - shootAngleModify;
         //斜坡(发射角度)调整
         double distance = Math.sqrt(relative_x*relative_x + relative_y*relative_y);
-        return slopeModify(distance / 100, select);
+        return slopeModify(distance / 100, target);
     }
 
     /**
@@ -343,26 +332,15 @@ public class manual_Iterative_Wy extends OpMode
      *注意事项: 1. 为了使表达式简单,本函数使用单位米(m)
      * ******************************************************************************
      * */
-    public double slopeModify(double distance,TargetObject select){
+    public double slopeModify(double distance,TargetObject tar){
         final double carHeight = 0.24;//车高
-        final double poleHeight = 0.78184375;
-        final double basketHeight = 0.996375;//篮筐高度
         final double g_v2 = 0.0168328914699322;//   重力/(发射速度的平方)
-        final double angleToPosition = -0.0135, compensate = 0.825;//角度转换成舵机位置的线性关系系数
+        final double angleToPosition = -0.0145, compensate = 0.825;//角度转换成舵机位置的线性关系系数
         //计算斜坡需要的角度
-        double H;
-        switch (select){
-            case BASKET:
-                H = basketHeight;
-                break;
-            default:
-                H = poleHeight;
-                break;
-        }
         double slopeAngle, calculateAssistAngle;
-        calculateAssistAngle = Math.atan((carHeight-H)/distance);
-        slopeAngle = (distance*distance*g_v2 + H - carHeight)
-                / Math.sqrt(distance*distance + (H-carHeight)*(H-carHeight));
+        calculateAssistAngle = Math.atan((carHeight-tar.height)/distance);
+        slopeAngle = (distance*distance*g_v2 + tar.height - carHeight)
+                / Math.sqrt(distance*distance + (tar.height-carHeight)*(tar.height-carHeight));
         slopeAngle = Math.asin(slopeAngle) - calculateAssistAngle;
         slopeAngle = Math.toDegrees(slopeAngle / 2);
 
@@ -441,25 +419,25 @@ public class manual_Iterative_Wy extends OpMode
         if (gamepad1.dpad_up) {
             if(!aimFlag) {
                 aimFlag = true;
-                angleOfSlope = autoAim(TargetObject.BASKET);
+                angleOfSlope = autoAim(basket);
             }
         }
         else if(gamepad1.dpad_left){
             if(!aimFlag) {
                 aimFlag = true;
-                angleOfSlope = autoAim(TargetObject.FIR_POLE);
+                angleOfSlope = autoAim(firstPole);
             }
         }
         else if (gamepad1.dpad_down){
             if(!aimFlag) {
                 aimFlag = true;
-                angleOfSlope = autoAim(TargetObject.SEC_POLE);
+                angleOfSlope = autoAim(secondPole);
             }
         }
         else if (gamepad1.dpad_right){
             if(!aimFlag) {
                 aimFlag = true;
-                angleOfSlope = autoAim(TargetObject.THI_POLE);
+                angleOfSlope = autoAim(thirdPole);
             }
         }
         else aimFlag = false;
@@ -551,6 +529,43 @@ public class manual_Iterative_Wy extends OpMode
         telemetry.addData("b","%.4f",b);
     }
 
+    double clampPosition = 0.5;
+    public void testClamp(){
+        if(gamepad2.right_bumper) {
+            if(!rbF) {
+                rbF = true;
+                clampPosition += 0.1;
+                clamp.setPosition(clampPosition);
+            }
+        } else rbF = false;
+
+        if(gamepad2.left_bumper) {
+            if(!lbF) {
+                lbF =true;
+                clampPosition -= 0.1;
+                clamp.setPosition(clampPosition);
+            }
+        } else lbF = false;
+        telemetry.addData("clamp","%.2f",clampPosition);
+    }
+
+    boolean armFlag = false;
+    public void armControl(){
+        if(gamepad2.dpad_up) {
+            armFlag = !armFlag;
+            if (armFlag) {
+                arm.setPower(0.8);
+                while (!touchUpon.isPressed())
+                    ;
+                arm.setPower(0);
+            } else {
+                arm.setPower(-0.8);
+                while (!touchBehind.isPressed())
+                    ;
+                arm.setPower(0);
+            }
+        }
+    }
     //按下停止
     @Override
     public void stop() {
