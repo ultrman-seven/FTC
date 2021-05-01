@@ -189,9 +189,8 @@ public class manual_Iterative_Wy extends OpMode
     @Override
 
     public void loop() {
-        clamp.setPosition(0.5);
-        armControl();
-        testClamp();
+        armOption();
+        clampOption();
         positionUpdate();//实时坐标位置数据更新
         angleControl();//角度调整
 
@@ -301,10 +300,14 @@ public class manual_Iterative_Wy extends OpMode
             this.height = co_z;
         }
     }
-    TargetObject basket = new TargetObject(91.44,365.76, 0.996375);
-    TargetObject firstPole = new TargetObject(10.795,365.76, 0.78184375);
-    TargetObject secondPole = new TargetObject(31.115,365.76, 0.78184375);
-    TargetObject thirdPole = new TargetObject(51.435,365.76, 0.78184375);
+    TargetObject basketLeft = new TargetObject(91.44,365.76, 0.996375);
+    TargetObject firstPoleLeft = new TargetObject(131.445,365.76, 0.78184375);
+    TargetObject secondPoleLeft = new TargetObject(151.765,365.76, 0.78184375);
+    TargetObject thirdPoleLeft = new TargetObject(172.085,365.76, 0.78184375);
+    TargetObject basketRight = new TargetObject(274.32,365.76, 0.996375);
+    TargetObject firstPoleRight = new TargetObject(193.675,365.76, 0.78184375);
+    TargetObject secondPoleRight = new TargetObject(213.995,365.76, 0.78184375);
+    TargetObject thirdPoleRight = new TargetObject(234.315,365.76, 0.78184375);
     public double autoAim(TargetObject target){
         final double shootAngleModify =
                 Math.toDegrees(Math.acos( 0.994337680164722 ));
@@ -419,25 +422,25 @@ public class manual_Iterative_Wy extends OpMode
         if (gamepad1.dpad_up) {
             if(!aimFlag) {
                 aimFlag = true;
-                angleOfSlope = autoAim(basket);
+                angleOfSlope = autoAim(basketLeft);
             }
         }
         else if(gamepad1.dpad_left){
             if(!aimFlag) {
                 aimFlag = true;
-                angleOfSlope = autoAim(firstPole);
+                angleOfSlope = autoAim(firstPoleLeft);
             }
         }
         else if (gamepad1.dpad_down){
             if(!aimFlag) {
                 aimFlag = true;
-                angleOfSlope = autoAim(secondPole);
+                angleOfSlope = autoAim(secondPoleLeft);
             }
         }
         else if (gamepad1.dpad_right){
             if(!aimFlag) {
                 aimFlag = true;
-                angleOfSlope = autoAim(thirdPole);
+                angleOfSlope = autoAim(thirdPoleLeft);
             }
         }
         else aimFlag = false;
@@ -529,28 +532,37 @@ public class manual_Iterative_Wy extends OpMode
         telemetry.addData("b","%.4f",b);
     }
 
-    double clampPosition = 0.5;
-    public void testClamp(){
-        if(gamepad2.right_bumper) {
-            if(!rbF) {
-                rbF = true;
-                clampPosition += 0.1;
-                clamp.setPosition(clampPosition);
+    /**
+     * **************************        clampOption         ***************************************
+     * 功能描述: 按一次键，架子加紧/放下
+     * 使用方法: 直接放进loop
+     * *********************************************************************************************
+     * */
+    boolean clampFlag = false;
+    boolean buttonFlag = false;
+    public void clampOption() {
+        final double CLOSE = 0.26;
+        final double OPEN = 0.7;
+        if (gamepad2.dpad_down) {
+            if (!buttonFlag) {
+                buttonFlag = true;
+                clampFlag = !clampFlag;
+                if (clampFlag)
+                    clamp.setPosition(OPEN);
+                else
+                    clamp.setPosition(CLOSE);
             }
-        } else rbF = false;
-
-        if(gamepad2.left_bumper) {
-            if(!lbF) {
-                lbF =true;
-                clampPosition -= 0.1;
-                clamp.setPosition(clampPosition);
-            }
-        } else lbF = false;
-        telemetry.addData("clamp","%.2f",clampPosition);
+        } else buttonFlag = false;
     }
 
+    /**
+     * **************************        armOption           ***************************************
+     * 功能描述: 按一次键，机械臂抬起/下降
+     * 使用方法: 直接放进loop
+     * *********************************************************************************************
+     * */
     boolean armFlag = false;
-    public void armControl(){
+    public void armOption(){
         if(gamepad2.dpad_up) {
             armFlag = !armFlag;
             if (armFlag) {

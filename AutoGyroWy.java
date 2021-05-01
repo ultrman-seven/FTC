@@ -38,6 +38,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.DigitalChannel;
 import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.TouchSensor;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 
@@ -70,7 +71,10 @@ public class AutoGyroWy extends LinearOpMode {
     Servo elevatorRight;
     Servo slope;
     Servo triggerRoller;
-
+    Servo clamp;
+    DcMotor arm;
+    private TouchSensor touchBehind;
+    private TouchSensor touchUpon;
     private DigitalChannel touchSensor0;
     private DigitalChannel touchSensor1;
     BNO055IMU imu;
@@ -109,38 +113,39 @@ public class AutoGyroWy extends LinearOpMode {
         while (!isStarted()) {
             telemetry.update();
         }
-        final int perRound = 4096;
-        final double circumference = 3.8 * Math.PI;
-        final double encoder_per_cm = perRound / circumference;
 
-        if (tfod != null) {
-            // getUpdatedRecognitions() will return null if no new information is available since
-            // the last time that call was made.
-            List<Recognition> updatedRecognitions = tfod.getUpdatedRecognitions();
-            if (updatedRecognitions != null) {
-                telemetry.addData("# Object Detected", updatedRecognitions.size());
-                // step through the list of recognitions and display boundary info.
-                int i = 0;
-                for (Recognition recognition : updatedRecognitions) {
-                    telemetry.addData(String.format("label (%d)", i), recognition.getLabel());
-                    telemetry.addData(String.format("  left,top (%d)", i), "%.03f , %.03f",
-                            recognition.getLeft(), recognition.getTop());
-                    telemetry.addData(String.format("  right,bottom (%d)", i), "%.03f , %.03f",
-                            recognition.getRight(), recognition.getBottom());
-                }
-                telemetry.update();
-            }
-        }
 
-        if (tfod != null) {
-            tfod.shutdown();
-        }
+//        if (tfod != null) {
+//            // getUpdatedRecognitions() will return null if no new information is available since
+//            // the last time that call was made.
+//            List<Recognition> updatedRecognitions = tfod.getUpdatedRecognitions();
+//            if (updatedRecognitions != null) {
+//                telemetry.addData("# Object Detected", updatedRecognitions.size());
+//                // step through the list of recognitions and display boundary info.
+//                int i = 0;
+//                for (Recognition recognition : updatedRecognitions) {
+//                    telemetry.addData(String.format("label (%d)", i), recognition.getLabel());
+//                    telemetry.addData(String.format("  left,top (%d)", i), "%.03f , %.03f",
+//                            recognition.getLeft(), recognition.getTop());
+//                    telemetry.addData(String.format("  right,bottom (%d)", i), "%.03f , %.03f",
+//                            recognition.getRight(), recognition.getBottom());
+//                }
+//                telemetry.update();
+//            }
+//        }
+//
+//        if (tfod != null) {
+//            tfod.shutdown();
+//        }
 
         resetTrigger();
-        moveForward(100 * encoder_per_cm);
-        turnAngle(90);
-        moveTrans(50 * encoder_per_cm);
-        moveForward(50 * encoder_per_cm);
+        String route1 ="CL,0," + "A,280," + "T,90," + "DOWN,0," + "OP,0," +
+                "A,30.48," + "UP,0," + "CL,0," + "T,0," + "B,243.84," +
+                "OP,0," + "DOWN,0," + "CL,0," + "UP,0," + "A,243.84," + "T,90," +
+                "B,30.48," + "DOWN,0," + "OP,0," + "T,0," + "B,280," +
+                "CL,0," + "UP,0," + "A,200,";
+
+        behave(route1);
 
         telemetry.addData("Path", "Complete");
         telemetry.update();
@@ -175,6 +180,10 @@ public class AutoGyroWy extends LinearOpMode {
         elevatorRight = hardwareMap.get(Servo.class, "elevatorright");
         slope         = hardwareMap.get(Servo.class, "slope");
         triggerRoller = hardwareMap.get(Servo.class, "triggerroller");
+        clamp         = hardwareMap.get(Servo.class,"clamp");
+        arm       = hardwareMap.get(DcMotor.class,"arm");
+        touchBehind = hardwareMap.get(TouchSensor.class,"touchBehind");
+        touchUpon = hardwareMap.get(TouchSensor.class,"touchUpon");
         touchSensor0 = hardwareMap.get(DigitalChannel.class, "touchsensor0");
         touchSensor1 = hardwareMap.get(DigitalChannel.class, "touchsensor1");
 
@@ -187,6 +196,7 @@ public class AutoGyroWy extends LinearOpMode {
         intake.setDirection(DcMotor.Direction.REVERSE);
         shooter.setDirection(DcMotor.Direction.FORWARD);
         triggerRoller.setDirection(Servo.Direction.FORWARD);
+        clamp.setDirection(Servo.Direction.FORWARD);
         LeftFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         LeftRear.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         RightFront.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
@@ -212,6 +222,51 @@ public class AutoGyroWy extends LinearOpMode {
         }
     }
 
+    public void behave(String str){
+        String[] option = str.split(",");
+        int i;
+        Double value;
+        for(i = 0; i < option.length/2; i+=2){
+            value = new Double(option[i+1]);
+            telemetry.addData("value","%.2f",value.doubleValue());
+            switch (option[i]) {
+                case "A":
+                    moveForward(value.doubleValue());
+                    break;
+                case "B":
+                    moveForward(-value.doubleValue());
+                    break;
+                case "L":
+                    moveTrans(value.doubleValue());
+                    break;
+                case "R":
+                    moveTrans(-value.doubleValue());
+                    break;
+                case "T":
+                    turnAngle(value.doubleValue());
+                    break;
+                case "UP":
+                    armOption(ArmState.UP);
+                    break;
+                case "DOWN":
+                    armOption(ArmState.DOWN);
+                    break;
+                case "OP":
+                    clampOption(ClampState.OPEN);
+                    break;
+                case "CL":
+                    clampOption(ClampState.CLOSE);
+                    break;
+                case "S":
+                    shootForTimes(value.intValue());
+                    break;
+                case "I":
+                    intakeForTime(value.intValue());
+                    break;
+            }
+        }
+    }
+
     /**
      * *****************          gyroModifyPID           ************************
      *
@@ -224,11 +279,11 @@ public class AutoGyroWy extends LinearOpMode {
     double targetAngle = 0;
     double proportionAngle = 0,integralAngle = 0,differentiationAngle = 0;//pid变量
     double lastAngleErr;
-    public double gyroModifyPID(double targetAngle) {
+    public double gyroModifyPID(double target) {
         final double Kp = 0.45, Ki = 0.0, Kd = 0.04;//pid参数
         Orientation angle;
         angle =imu.getAngularOrientation();
-        proportionAngle=targetAngle-angle.firstAngle;//计算角度误差，作为比例误差
+        proportionAngle=target-angle.firstAngle;//计算角度误差，作为比例误差
         differentiationAngle=proportionAngle-lastAngleErr;//微分
         integralAngle=integralAngle+proportionAngle;//积分
         lastAngleErr=proportionAngle;
@@ -304,35 +359,100 @@ public class AutoGyroWy extends LinearOpMode {
 
     }
 
-    public void moveForward(double targetPosition){
+    /**
+     * **************************        armOption           ***************************************
+     * 功能描述: 机械臂抬起/下降
+     * *********************************************************************************************
+     * */
+    enum ArmState{
+        UP, DOWN;
+    }
+    public void armOption(ArmState armFlag) {
+        if (armFlag == ArmState.UP) {
+            arm.setPower(0.8);
+            while (!touchUpon.isPressed())
+                ;
+            arm.setPower(0);
+        }
+        if(armFlag == ArmState.DOWN){
+            arm.setPower(-0.8);
+            while (!touchBehind.isPressed())
+                ;
+            arm.setPower(0);
+        }
+    }
+
+    /**
+     * **************************        clampOption         ***************************************
+     * *********************************************************************************************
+     * */
+    enum ClampState{
+        CLOSE, OPEN;
+    }
+    public void clampOption(ClampState state) {
+        final double CLOSE = 0.26;
+        final double OPEN = 0.7;
+        if (state == ClampState.OPEN)
+            clamp.setPosition(OPEN);
+        if(state == ClampState.CLOSE)
+            clamp.setPosition(CLOSE);
+    }
+
+    public void moveForward(double targetPosition) {
+        final int perRound = 4096;
+        final double circumference = 3.8 * Math.PI;
+        final double encoder_per_cm = perRound / circumference;
         int leftEncoder = 0, rightEncoder = 0;
         double speedModify = gyroModifyPID(targetAngle);
-        final double speed = 0.2;
-        forwardPower(speed,speedModify);
-        while ( ((leftEncoder+rightEncoder)/2) < targetPosition)
-        {
-            leftEncoder = -LeftFront.getCurrentPosition()-1;
-            rightEncoder = -RightFront.getCurrentPosition()-1;
-            //speedModify = encoderModifyPID(leftEncoder, rightEncoder);//编码器pid
-            speedModify = gyroModifyPID(targetAngle);//陀螺仪pid
-            forwardPower(speed,speedModify);
+        final double speed = 1;
+        if (targetPosition > 0) {
+            forwardPower(speed, speedModify);
+            while (((leftEncoder + rightEncoder) / 2) < targetPosition * encoder_per_cm) {
+                leftEncoder = -LeftFront.getCurrentPosition() - 1;
+                rightEncoder = -RightFront.getCurrentPosition() - 1;
+                //speedModify = encoderModifyPID(leftEncoder, rightEncoder);//编码器pid
+                speedModify = gyroModifyPID(targetAngle);//陀螺仪pid
+                forwardPower(speed, speedModify);
+            }
+        } else {
+            forwardPower(-speed, speedModify);
+            while (((leftEncoder + rightEncoder) / 2) > targetPosition * encoder_per_cm) {
+                leftEncoder = -LeftFront.getCurrentPosition() - 1;
+                rightEncoder = -RightFront.getCurrentPosition() - 1;
+                //speedModify = encoderModifyPID(leftEncoder, rightEncoder);//编码器pid
+                speedModify = gyroModifyPID(targetAngle);//陀螺仪pid
+                forwardPower(-speed, speedModify);
+            }
         }
-        forwardPower(0,0);
+        forwardPower(0, 0);
         encoderReset(RightFront);
         encoderReset(LeftFront);
     }
 
-    public void moveTrans(double targetPosition){
+    public void moveTrans(double targetPosition) {
+        final int perRound = 4096;
+        final double circumference = 3.8 * Math.PI;
+        final double encoder_per_cm = perRound / circumference;
         int midEncoder = 0;
         double speedModify = gyroModifyPID(targetAngle);
-        final double speed = 0.8;
-        transPower(speed, speedModify);
-        while (midEncoder < targetPosition){
-            midEncoder = RightRear.getCurrentPosition();
-            speedModify = gyroModifyPID(targetAngle);
+        final double speed = 1;
+        if (targetPosition > 0) {
             transPower(speed, speedModify);
+            while (midEncoder < targetPosition * encoder_per_cm) {
+                midEncoder = RightRear.getCurrentPosition();
+                speedModify = gyroModifyPID(targetAngle);
+                transPower(speed, speedModify);
+            }
         }
-        transPower(0,0);
+        else {
+            transPower(-speed, speedModify);
+            while (midEncoder > targetPosition * encoder_per_cm) {
+                midEncoder = RightRear.getCurrentPosition();
+                speedModify = gyroModifyPID(targetAngle);
+                transPower(-speed, speedModify);
+            }
+        }
+        transPower(0, 0);
         encoderReset(RightRear);
     }
 
@@ -341,8 +461,10 @@ public class AutoGyroWy extends LinearOpMode {
         targetAngle = angle;
         speedModify = gyroModifyPID(angle);
         while ( Math.abs(speedModify) > 0.1 ){
+            speedModify = gyroModifyPID(angle);
             forwardPower(0,speedModify);
         }
+        forwardPower(0,0);
     }
 
     public void forwardPower(double speed, double modify){
