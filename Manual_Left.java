@@ -28,6 +28,7 @@
  */
 
 package org.firstinspires.ftc.teamcode;
+
 import com.qualcomm.hardware.bosch.BNO055IMU;
 import com.qualcomm.hardware.bosch.JustLoggingAccelerationIntegrator;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
@@ -37,6 +38,7 @@ import com.qualcomm.robotcore.hardware.DigitalChannel;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.hardware.TouchSensor;
 import com.qualcomm.robotcore.util.ElapsedTime;
+
 import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
 
 /**
@@ -53,9 +55,9 @@ import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
  * Remove or comment out the @Disabled line to add this opmode to the Driver Station OpMode list
  */
 
-@TeleOp(name="O_0", group="Iterative Opmode")
+@TeleOp(name="左！", group="Iterative Opmode")
 
-public class manual_Iterative_Wy extends OpMode
+public class Manual_Left extends OpMode
 {
     //-------------------------------电机和传感器声明们--------------------------------------------
     final ElapsedTime runtime = new ElapsedTime();
@@ -247,7 +249,7 @@ public class manual_Iterative_Wy extends OpMode
     //编码器参数
     final int perRound = 4096;
     final double diameter = 3.8;
-    final double circumference = diameter * Math.PI;
+    final double circumference = diameter * Math.PI * 1.0249167759507718;
     final double initX = 26.5, initY = 31;
     double position_x = initX * perRound / circumference,
             position_y = initY * perRound / circumference;
@@ -578,27 +580,6 @@ public class manual_Iterative_Wy extends OpMode
             }
         }
     }
-
-    double triVal = 0.5;
-    public void intakeTriggerTest() {//0.62下 ,0.3上
-        if (gamepad2.right_bumper) {
-            if (!rbF) {
-                rbF = true;
-                triVal += 0.05;
-            }
-        } else rbF = false;
-
-        if (gamepad2.left_bumper) {
-            if (!lbF) {
-                lbF = true;
-                triVal -= 0.05;
-            }
-        } else lbF = false;
-
-        intakeTrigger.setPosition(triVal);
-        telemetry.addData("tri", "%.2f", triVal);
-    }
-
     //按下停止
     @Override
     public void stop() {

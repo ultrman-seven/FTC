@@ -32,26 +32,18 @@ package org.firstinspires.ftc.teamcode;
 import com.qualcomm.hardware.bosch.BNO055IMU;
 import com.qualcomm.hardware.bosch.JustLoggingAccelerationIntegrator;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
-import com.qualcomm.robotcore.eventloop.opmode.Disabled;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
-import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.DigitalChannel;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.hardware.TouchSensor;
 import com.qualcomm.robotcore.util.ElapsedTime;
-import com.qualcomm.robotcore.util.Range;
 
-import org.firstinspires.ftc.robotcontroller.external.samples.HardwarePushbot;
 import org.firstinspires.ftc.robotcore.external.ClassFactory;
 import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
-import org.firstinspires.ftc.robotcore.external.navigation.Acceleration;
 import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
 import org.firstinspires.ftc.robotcore.external.navigation.VuforiaLocalizer;
-import org.firstinspires.ftc.robotcore.external.tfod.Recognition;
 import org.firstinspires.ftc.robotcore.external.tfod.TFObjectDetector;
-
-import java.util.List;
 
 @Autonomous(name="Pushbot: Auto Drive By Gyro", group="Pushbot")
 //@Disabled
@@ -139,13 +131,14 @@ public class AutoGyroWy extends LinearOpMode {
 //        }
 
         resetTrigger();
-        String route1 ="CL,0," + "A,280," + "T,90," + "DOWN,0," + "OP,0," +
-                "A,30.48," + "UP,0," + "CL,0," + "T,0," + "B,243.84," +
-                "OP,0," + "DOWN,0," + "CL,0," + "UP,0," + "A,243.84," + "T,90," +
-                "B,30.48," + "DOWN,0," + "OP,0," + "T,0," + "B,280," +
-                "CL,0," + "UP,0," + "A,200,";
+        String route1 ="CL," + "A,280," + "T,90," + "DOWN," + "OP," + "A,30.48,"
+                + "UP," + "CL," + "T,0," + "B,243.84," + "OP," + "DOWN," + "CL,"
+                + "UP," + "A,243.84," + "T,90," + "B,30.48," + "DOWN," + "OP,"
+                + "T,0," + "B,280," + "CL," + "UP," + "A,200,";
 
-        behave(route1);
+        String route2 ="CL,A,50,S,3,I,2500,S,1,A,50,T,-90,DOWN,OP,UP";
+
+        behave(route2);
 
         telemetry.addData("Path", "Complete");
         telemetry.update();
@@ -162,10 +155,7 @@ public class AutoGyroWy extends LinearOpMode {
         parameters.loggingTag          = "IMU";
         parameters.accelerationIntegrationAlgorithm = new JustLoggingAccelerationIntegrator();
         //延时0.5秒，以确保imu正常工作
-        try {
-            Thread.sleep(500);//单位：毫秒
-        } catch (Exception e) {
-        }
+        sleepForMS(300);
 
         //定义电机
         LeftFront     = hardwareMap.get(DcMotor.class, "leftfront");
@@ -216,33 +206,33 @@ public class AutoGyroWy extends LinearOpMode {
 
         imu.initialize(parameters);
         //延时0.5秒，以确保imu正常工作
-        try {
-            Thread.sleep(500);//单位：毫秒
-        } catch (Exception e) {
-        }
+        sleepForMS(300);
     }
 
     public void behave(String str){
         String[] option = str.split(",");
         int i;
         Double value;
-        for(i = 0; i < option.length/2; i+=2){
-            value = new Double(option[i+1]);
-            telemetry.addData("value","%.2f",value.doubleValue());
+        for(i = 0; i < option.length; i++){
             switch (option[i]) {
                 case "A":
+                    value = new Double(option[++i]);
                     moveForward(value.doubleValue());
                     break;
                 case "B":
+                    value = new Double(option[++i]);
                     moveForward(-value.doubleValue());
                     break;
                 case "L":
+                    value = new Double(option[++i]);
                     moveTrans(value.doubleValue());
                     break;
                 case "R":
+                    value = new Double(option[++i]);
                     moveTrans(-value.doubleValue());
                     break;
                 case "T":
+                    value = new Double(option[++i]);
                     turnAngle(value.doubleValue());
                     break;
                 case "UP":
@@ -258,9 +248,11 @@ public class AutoGyroWy extends LinearOpMode {
                     clampOption(ClampState.CLOSE);
                     break;
                 case "S":
+                    value = new Double(option[++i]);
                     shootForTimes(value.intValue());
                     break;
                 case "I":
+                    value = new Double(option[++i]);
                     intakeForTime(value.intValue());
                     break;
             }
@@ -291,6 +283,14 @@ public class AutoGyroWy extends LinearOpMode {
         return (Kp*proportionAngle+Ki*integralAngle+Kd*differentiationAngle) / 15;
     }
 
+    /**
+     * ****************          encoderModifyPID           **********************
+     *
+     * 功能描述：使用左右编码器，返回速度修正。
+     *          修正后的效果为：车走直线。
+     * 使用方法：1. 将右边电机速度加上修正值，左边减去修正值。
+     * ***************************************************************************
+     * */
     double proportionEncoder=0, integralEncoder=0, differentiationEncoder=0;
     double lastEncoderErr;
     public double encoderModifyPID(int left, int right){
@@ -304,29 +304,56 @@ public class AutoGyroWy extends LinearOpMode {
         return modify;
     }
 
+    /**
+     * ******************         intakeForTime            ************************
+     *
+     * 功能描述: 一段时间内,收集圈
+     * 使用方法: 参数为收集的时间,单位毫秒
+     * ****************************************************************************
+     * */
     public void intakeForTime(int time){
         intake.setPower(1);
+        sleepForMS(time);
+        intake.setPower(0);
+    }
+
+    public  void sleepForMS(int time){
         try {
             Thread.sleep(time);//单位：毫秒
         } catch (Exception e) {
         }
-        intake.setPower(0);
     }
 
+    /**
+     * ****************          shootForTimes          ****************************
+     *
+     * 功能描述: 发射n次
+     *          具体为电梯抬起 -> 发射n次 -> 电梯降下
+     * 使用方法: 参数为发射次数n
+     * *****************************************************************************
+     * */
     final double TRI_RUN = 0.9;
     final double TRI_STOP =0.5;
     public void shootForTimes(int times){
         elevatorOperation(elevatorState.UP);
         int shootCount = 0;
-        while (shootCount < times){
-            trigger.setPosition(TRI_RUN);
-            if (touchSensor0.getState())
-                shootCount++;
-        }
+        trigger.setPosition(TRI_RUN);
+        while (true)
+            if (touchSensor0.getState()) {
+                if(shootCount++ < times)
+                    sleepForMS(300);
+                else break;
+            }
         trigger.setPosition(TRI_STOP);
         elevatorOperation(elevatorState.DOWN);
     }
 
+    /**
+     * *******************      resetTrigger          ****************************
+     * 功能描述: trigger复位
+     * 使用方法:直接调用
+     * ***************************************************************************
+     * */
     public void resetTrigger(){
         elevatorOperation(elevatorState.UP);
         while (true) {
@@ -340,6 +367,12 @@ public class AutoGyroWy extends LinearOpMode {
         }
     }
 
+    /**
+     * ****************           elevatorOperation             ******************
+     * 功能描述: 电梯抬起或下降
+     * 使用方法: 参数为电梯上下操作
+     * ***************************************************************************
+     * */
     enum elevatorState{
         UP, DOWN;
     }
@@ -356,13 +389,12 @@ public class AutoGyroWy extends LinearOpMode {
             elevatorLeft.setPosition(MIN_POS_left);
             elevatorRight.setPosition(MIN_POS_right);
         }
-
     }
 
     /**
-     * **************************        armOption           ***************************************
+     * ********************        armOption           ****************************
      * 功能描述: 机械臂抬起/下降
-     * *********************************************************************************************
+     * ****************************************************************************
      * */
     enum ArmState{
         UP, DOWN;
@@ -383,8 +415,10 @@ public class AutoGyroWy extends LinearOpMode {
     }
 
     /**
-     * **************************        clampOption         ***************************************
-     * *********************************************************************************************
+     * ************************        clampOption       *************************
+     * 功能描述: 架子夹紧松开
+     * 使用方法: 参数为架子操作
+     * ***************************************************************************
      * */
     enum ClampState{
         CLOSE, OPEN;
@@ -398,9 +432,13 @@ public class AutoGyroWy extends LinearOpMode {
             clamp.setPosition(CLOSE);
     }
 
+    /**
+     * **********************     moveForward       *******************************
+     *
+     * */
     public void moveForward(double targetPosition) {
         final int perRound = 4096;
-        final double circumference = 3.8 * Math.PI;
+        final double circumference = 3.8 * Math.PI * 1.0249167759507718;
         final double encoder_per_cm = perRound / circumference;
         int leftEncoder = 0, rightEncoder = 0;
         double speedModify = gyroModifyPID(targetAngle);
@@ -431,7 +469,7 @@ public class AutoGyroWy extends LinearOpMode {
 
     public void moveTrans(double targetPosition) {
         final int perRound = 4096;
-        final double circumference = 3.8 * Math.PI;
+        final double circumference = 3.8 * Math.PI * 1.0249167759507718;
         final double encoder_per_cm = perRound / circumference;
         int midEncoder = 0;
         double speedModify = gyroModifyPID(targetAngle);
