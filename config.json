@@ -1,0 +1,19 @@
+{
+    "pid_para": {
+        "Kp": 0.45,
+        "Ki": 0,
+        "Kd": 0.04
+    },
+    "imu_name": "imu",
+    "motor_name": {
+        "lf": "leftFront",
+        "lr": "leftRear",
+        "rf": "rightFront",
+        "rr": "rightRear"
+    },
+    "angleIncreaseCoefficient": 3.5,
+    "init_position": [
+        0,
+        0
+    ]
+}
